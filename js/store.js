@@ -147,16 +147,25 @@ export async function refreshFromDrive() {
     if (existing && existing.modifiedTime === f.modifiedTime) {
       continue; // unchanged
     }
-    const text = await drive.getContent(f.id);
-    const note = noteFromMarkdown(text, f.id);
-    await idbPut('notes', { id: note.id, note, modifiedTime: f.modifiedTime });
+    try {
+      const text = await drive.getContent(f.id);
+      const note = noteFromMarkdown(text, f.id);
+      await idbPut('notes', { id: note.id, note, modifiedTime: f.modifiedTime });
+    } catch (err) {
+      // Don't let one unreadable file abort the whole sync.
+      console.warn('Xava Notes: could not load file', f.name, err);
+    }
   }
 
-  // Remove cache entries whose Drive file disappeared (deleted elsewhere),
-  // but keep not-yet-synced local notes (no fileId).
-  for (const r of cached) {
-    if (r.note.fileId && !seenFileIds.has(r.note.fileId)) {
-      await idbDelete('notes', r.note.id);
+  // Remove cache entries whose Drive file disappeared (deleted elsewhere), but
+  // keep not-yet-synced local notes (no fileId). Guard: only prune when the
+  // listing actually returned something, so a transient empty/partial response
+  // can never wipe a populated cache.
+  if (files.length > 0) {
+    for (const r of cached) {
+      if (r.note.fileId && !seenFileIds.has(r.note.fileId)) {
+        await idbDelete('notes', r.note.id);
+      }
     }
   }
 

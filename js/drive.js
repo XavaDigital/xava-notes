@@ -71,17 +71,16 @@ export async function ensureAttachmentsFolder() {
   return cachedAttachmentsFolderId;
 }
 
-const FILE_FIELDS = 'id,name,modifiedTime,createdTime,appProperties';
+const FILE_FIELDS = 'id,name,mimeType,modifiedTime,createdTime,appProperties';
 
-// List all note files in the folder (metadata only).
+// List all note files in the folder (metadata only). The attachments subfolder
+// is filtered out in JS so the Drive query itself stays simple and reliable.
 export async function listFiles() {
   const folderId = await ensureFolder();
   const files = [];
   let pageToken = '';
   do {
-    const q = encodeURIComponent(
-      `'${folderId}' in parents and trashed=false and mimeType != '${FOLDER_MIME}'`
-    );
+    const q = encodeURIComponent(`'${folderId}' in parents and trashed=false`);
     const url =
       `${FILES}?q=${q}&fields=nextPageToken,files(${FILE_FIELDS})` +
       `&orderBy=modifiedTime desc&pageSize=100` +
@@ -91,7 +90,7 @@ export async function listFiles() {
     files.push(...(data.files || []));
     pageToken = data.nextPageToken || '';
   } while (pageToken);
-  return files;
+  return files.filter((f) => f.mimeType !== FOLDER_MIME);
 }
 
 // Full-text search within the folder. Returns file metadata.
@@ -99,13 +98,12 @@ export async function searchFiles(text) {
   const folderId = await ensureFolder();
   const safe = text.replace(/'/g, "\\'");
   const q = encodeURIComponent(
-    `'${folderId}' in parents and trashed=false and mimeType != '${FOLDER_MIME}'` +
-    ` and fullText contains '${safe}'`
+    `'${folderId}' in parents and trashed=false and fullText contains '${safe}'`
   );
   const url = `${FILES}?q=${q}&fields=files(${FILE_FIELDS})&pageSize=100`;
   const res = await authFetch(url);
   const data = await res.json();
-  return data.files || [];
+  return (data.files || []).filter((f) => f.mimeType !== FOLDER_MIME);
 }
 
 // Download a file's text content.
