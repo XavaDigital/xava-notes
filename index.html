@@ -95,13 +95,13 @@
         <button type="button" data-fmt="code" title="Code">&lt;/&gt;</button>
         <button type="button" data-fmt="link" title="Link">&#128279;</button>
         <button type="button" data-fmt="hr" title="Divider">&horbar;</button>
-        <button id="previewToggle" type="button" class="preview-toggle" title="Toggle preview">Preview</button>
+        <button id="mdToggle" type="button" class="preview-toggle" title="Edit raw Markdown">&lt;/&gt; MD</button>
       </div>
 
-      <textarea id="bodyInput" class="body-input"
-                placeholder="Type or tap the mic on your keyboard to dictate&hellip;"
-                autocapitalize="sentences"></textarea>
-      <div id="bodyPreview" class="body-input body-preview md" hidden></div>
+      <div id="bodyEditor" class="body-input body-editor md" contenteditable="true"
+           data-placeholder="Type or tap the mic on your keyboard to dictate…"></div>
+      <textarea id="bodyInput" class="body-input" hidden
+                placeholder="Raw Markdown" autocapitalize="off" spellcheck="false"></textarea>
 
       <label class="field">
         <span>Notebook</span>

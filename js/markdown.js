@@ -72,6 +72,92 @@ export function mdToHtml(md) {
   return out.join('\n');
 }
 
+// --- HTML -> Markdown (for the WYSIWYG editor; browser only) ------------
+
+function inlineStyleWrap(el, inner) {
+  const t = inner.trim();
+  if (!t) return inner;
+  const st = (el.getAttribute('style') || '').toLowerCase();
+  let s = t;
+  if (/font-weight\s*:\s*(bold|[6-9]00)/.test(st)) s = `**${s}**`;
+  if (/font-style\s*:\s*italic/.test(st)) s = `_${s}_`;
+  if (/text-decoration[^;]*line-through/.test(st)) s = `~~${s}~~`;
+  if (/background(-color)?\s*:\s*(?!transparent|rgba\(0,\s*0,\s*0,\s*0\))[^;]+/.test(st)) s = `==${s}==`;
+  return s;
+}
+
+function isChecklistItem(li) {
+  return (li.classList && li.classList.contains('md-task')) ||
+    !!li.querySelector(':scope > .md-cb');
+}
+
+function listToMd(listEl, ordered) {
+  let out = '';
+  let i = 1;
+  listEl.querySelectorAll(':scope > li').forEach((li) => {
+    const inner = nodeToMd(li).trim();
+    if (isChecklistItem(li)) {
+      const checked = li.querySelector(':scope > .md-cb.on') ? 'x' : ' ';
+      out += `- [${checked}] ${inner}\n`;
+    } else if (ordered) {
+      out += `${i++}. ${inner}\n`;
+    } else {
+      out += `- ${inner}\n`;
+    }
+  });
+  return out;
+}
+
+function nodeToMd(node) {
+  let md = '';
+  node.childNodes.forEach((child) => {
+    if (child.nodeType === 3) { md += child.textContent.replace(/\s+/g, ' '); return; }
+    if (child.nodeType !== 1) return;
+    const tag = child.tagName.toLowerCase();
+    if (tag === 'br') { md += '\n'; return; }
+    if (tag === 'hr') { md += '\n---\n'; return; }
+    if (tag === 'ul') { md += '\n' + listToMd(child, false) + '\n'; return; }
+    if (tag === 'ol') { md += '\n' + listToMd(child, true) + '\n'; return; }
+    if (tag === 'pre') { md += `\n\`\`\`\n${child.textContent.trim()}\n\`\`\`\n`; return; }
+    if (tag === 'span' && child.classList.contains('md-cb')) return; // checkbox marker
+
+    const inner = nodeToMd(child);
+    const t = inner.trim();
+    switch (tag) {
+      case 'h1': md += `\n# ${t}\n`; break;
+      case 'h2': md += `\n## ${t}\n`; break;
+      case 'h3': case 'h4': case 'h5': case 'h6': md += `\n### ${t}\n`; break;
+      case 'strong': case 'b': md += t ? `**${t}**` : ''; break;
+      case 'em': case 'i': md += t ? `_${t}_` : ''; break;
+      case 'del': case 's': case 'strike': md += t ? `~~${t}~~` : ''; break;
+      case 'mark': md += t ? `==${t}==` : ''; break;
+      case 'u': md += inner; break;
+      case 'code': case 'tt': md += t ? '`' + t + '`' : ''; break;
+      case 'blockquote': md += `\n> ${t}\n`; break;
+      case 'li': md += `- ${t}\n`; break; // stray <li>
+      case 'a': {
+        const href = child.getAttribute('href');
+        md += href ? `[${t || href}](${href})` : inner;
+        break;
+      }
+      case 'p': case 'div': md += inner.replace(/\n+$/, '') + '\n'; break;
+      case 'span': case 'font': md += inlineStyleWrap(child, inner); break;
+      default: md += inner;
+    }
+  });
+  return md;
+}
+
+export function htmlToMarkdown(html) {
+  const root = document.createElement('div');
+  root.innerHTML = html || '';
+  return nodeToMd(root)
+    .replace(/ /g, ' ')
+    .replace(/[ \t]+\n/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
 // Remove Markdown markers for clean, plain-text list previews.
 export function stripMarkdown(md) {
   return (md || '')

@@ -262,6 +262,12 @@ body {
 }
 .body-input:focus { outline: none; }
 
+/* WYSIWYG editor */
+.body-editor { min-height: 38vh; outline: none; cursor: text; overflow-wrap: anywhere; }
+.body-editor:empty::before { content: attr(data-placeholder); color: var(--muted); }
+.body-editor .md-cb { cursor: pointer; }
+.body-editor:focus { outline: none; }
+
 /* Formatting toolbar */
 .format-bar {
   display: flex; flex-wrap: wrap; gap: 6px; align-items: center;

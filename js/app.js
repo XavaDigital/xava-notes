@@ -5,7 +5,7 @@ import { signIn, signOut, isSignedIn, onAuthChange, getToken } from './auth.js';
 import * as store from './store.js';
 import * as drive from './drive.js';
 import { emptyNote, notePreview } from './note.js';
-import { mdToHtml } from './markdown.js';
+import { mdToHtml, htmlToMarkdown } from './markdown.js';
 import { parseFiles } from './import.js';
 
 const $ = (sel) => document.querySelector(sel);
@@ -387,8 +387,9 @@ function renderNotebookSelect(note) {
 function openEditor(note) {
   state.current = note;
   $('#titleInput').value = note.title || '';
+  $('#bodyEditor').innerHTML = mdToHtml(note.body || '');
   $('#bodyInput').value = note.body || '';
-  setPreview(false); // always open in edit mode
+  setMdMode(false); // open in styled (WYSIWYG) mode
   renderNotebookSelect(note);
   $('#dueInput').value = note.due || '';
   $('#doneInput').checked = !!note.done;
@@ -411,26 +412,36 @@ function setType(type) {
   $('#taskFields').hidden = type !== 'task';
 }
 
-// --- Body formatting (Markdown) ----------------------------------------
+// --- Body formatting (WYSIWYG + raw Markdown) --------------------------
 
-function setPreview(on) {
+// Are we showing the raw Markdown textarea (vs the styled editor)?
+function inMdMode() { return !$('#bodyInput').hidden; }
+
+// Toggle between styled (contenteditable) and raw Markdown (textarea).
+function setMdMode(on) {
+  const ed = $('#bodyEditor');
   const ta = $('#bodyInput');
-  const pv = $('#bodyPreview');
-  const btn = $('#previewToggle');
-  if (!ta || !pv) return;
+  const btn = $('#mdToggle');
+  if (!ed || !ta) return;
   if (on) {
-    pv.innerHTML = mdToHtml(ta.value);
-    ta.hidden = true;
-    pv.hidden = false;
-  } else {
+    ta.value = htmlToMarkdown(ed.innerHTML);
+    ed.hidden = true;
     ta.hidden = false;
-    pv.hidden = true;
+  } else {
+    ed.innerHTML = mdToHtml(ta.value);
+    ta.hidden = true;
+    ed.hidden = false;
   }
   if (btn) btn.classList.toggle('active', on);
-  $('#formatBar')?.classList.toggle('previewing', on);
+}
+
+// Read the current body as Markdown, whichever mode is active.
+function currentBodyMarkdown() {
+  return inMdMode() ? $('#bodyInput').value : htmlToMarkdown($('#bodyEditor').innerHTML);
 }
 
 function applyFormat(fmt) {
+  if (!inMdMode()) { richFormat(fmt); return; }
   const ta = $('#bodyInput');
   if (!ta || ta.hidden) return;
   const val = ta.value;
@@ -492,6 +503,48 @@ function applyFormat(fmt) {
     }
   }
   ta.focus();
+}
+
+// WYSIWYG formatting via the browser's editing commands.
+function richFormat(fmt) {
+  const ed = $('#bodyEditor');
+  if (!ed) return;
+  ed.focus();
+  const exec = (cmd, val = null) => document.execCommand(cmd, false, val);
+  switch (fmt) {
+    case 'bold': exec('bold'); break;
+    case 'italic': exec('italic'); break;
+    case 'strike': exec('strikeThrough'); break;
+    case 'highlight': exec('hiliteColor', '#ffd54f'); break;
+    case 'h1': exec('formatBlock', '<h1>'); break;
+    case 'h2': exec('formatBlock', '<h2>'); break;
+    case 'h3': exec('formatBlock', '<h3>'); break;
+    case 'quote': exec('formatBlock', '<blockquote>'); break;
+    case 'ul': exec('insertUnorderedList'); break;
+    case 'ol': exec('insertOrderedList'); break;
+    case 'hr': exec('insertHorizontalRule'); break;
+    case 'code': wrapSelection('code'); break;
+    case 'check':
+      exec('insertHTML',
+        '<ul class="md-tasks"><li class="md-task"><span class="md-cb" contenteditable="false"></span>&nbsp;</li></ul>');
+      break;
+    case 'link': {
+      const url = prompt('Link URL', 'https://');
+      if (url) exec('createLink', url);
+      break;
+    }
+  }
+}
+
+function wrapSelection(tag) {
+  const sel = window.getSelection();
+  if (!sel || !sel.rangeCount) return;
+  const range = sel.getRangeAt(0);
+  if (range.collapsed) return;
+  const el = document.createElement(tag);
+  el.appendChild(range.extractContents());
+  range.insertNode(el);
+  sel.removeAllRanges();
 }
 
 function renderSubtasks(note) {
@@ -712,7 +765,7 @@ function collectEditor() {
   commitPendingTag(); // fold any uncommitted text in the tag box into tags
   const n = state.current;
   n.title = $('#titleInput').value.trim();
-  n.body = $('#bodyInput').value;
+  n.body = currentBodyMarkdown();
   n.notebook = $('#notebookSelect').value || '';
   n.due = $('#dueInput').value;
   n.done = $('#doneInput').checked;
@@ -896,7 +949,12 @@ function wireEvents() {
     e.preventDefault();
     applyFormat(btn.dataset.fmt);
   });
-  $('#previewToggle').addEventListener('click', () => setPreview($('#bodyInput').hidden ? false : true));
+  $('#mdToggle').addEventListener('click', () => setMdMode(!inMdMode()));
+  // Toggle checklist checkboxes in the styled editor.
+  $('#bodyEditor').addEventListener('click', (e) => {
+    const cb = e.target.closest('.md-cb');
+    if (cb) cb.classList.toggle('on');
+  });
 
   $('#clearDue').addEventListener('click', () => { $('#dueInput').value = ''; });
   $('#attachBtn').addEventListener('click', () => $('#attachInput').click());
