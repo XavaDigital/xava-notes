@@ -16,6 +16,7 @@ const state = {
   query: '',
   tags: [], // active tag filters (from tapping cards or the tag bar) — ANDed
   notebook: '', // active notebook/list view ('' = all notebooks)
+  trash: false, // viewing the Trash (soft-deleted items)
   sort: 'date', // 'date' = by due date (overdue first), 'recent' = by last edited
   current: null, // note being edited
 };
@@ -40,6 +41,7 @@ function registerNotebook(name) {
 function allNotebooks() {
   const counts = new Map();
   for (const n of state.notes) {
+    if (n.deleted) continue;
     const nb = n.notebook;
     if (!nb) continue;
     const e = counts.get(nb.toLowerCase()) || { name: nb, count: 0 };
@@ -152,23 +154,30 @@ function activeTagFilters() {
   return [...state.tags, ...tags];
 }
 
+function matchesText(note) {
+  const { text } = parseSearch(state.query);
+  if (!text) return true;
+  const hay = [
+    note.title,
+    note.body,
+    (note.tags || []).join(' '),
+    (note.subtasks || []).map((s) => s.text).join(' '),
+  ].join(' ').toLowerCase();
+  return hay.includes(text.toLowerCase());
+}
+
 function passesFilters(note) {
+  // Trash view shows only soft-deleted items (search still works); the normal
+  // views never show deleted items.
+  if (state.trash) return !!note.deleted && matchesText(note);
+  if (note.deleted) return false;
+
   if (state.notebook && (note.notebook || '').toLowerCase() !== state.notebook.toLowerCase()) return false;
   if (!matchesFilter(note)) return false;
   for (const t of activeTagFilters()) {
     if (!noteHasTag(note, t)) return false;
   }
-  const { text } = parseSearch(state.query);
-  if (text) {
-    const hay = [
-      note.title,
-      note.body,
-      (note.tags || []).join(' '),
-      (note.subtasks || []).map((s) => s.text).join(' '),
-    ].join(' ').toLowerCase();
-    if (!hay.includes(text.toLowerCase())) return false;
-  }
-  return true;
+  return matchesText(note);
 }
 
 // Sort comparators.
@@ -207,10 +216,23 @@ function render() {
   const filtering = state.query || state.tags.length || state.notebook || state.filter !== 'all';
 
   if (items.length === 0) {
-    list.innerHTML = `<div class="empty">
-      <p>${filtering ? 'No matches.' : 'No notes yet.'}</p>
-      <p class="muted">${filtering ? '' : 'Tap + to capture your first note.'}</p>
-    </div>`;
+    const msg = state.trash ? 'Trash is empty.' : (filtering ? 'No matches.' : 'No notes yet.');
+    const hint = state.trash || filtering ? '' : 'Tap + to capture your first note.';
+    list.innerHTML = `<div class="empty"><p>${msg}</p><p class="muted">${hint}</p></div>`;
+    return;
+  }
+
+  list.innerHTML = '';
+
+  if (state.trash) {
+    const head = document.createElement('div');
+    head.className = 'trash-head';
+    head.innerHTML =
+      '<span class="muted small">Items stay on Drive until you empty the trash.</span>' +
+      '<button id="emptyTrashBtn" class="danger-btn">Empty Trash</button>';
+    list.appendChild(head);
+    head.querySelector('#emptyTrashBtn').addEventListener('click', emptyTrashFlow);
+    items.forEach((n) => list.appendChild(renderCard(n)));
     return;
   }
 
@@ -220,7 +242,6 @@ function render() {
   const overdue = grouped ? items.filter(isOverdue) : [];
   const rest = grouped ? items.filter((n) => !isOverdue(n)) : items;
 
-  list.innerHTML = '';
   if (overdue.length) {
     list.appendChild(sectionHeader(`Overdue · ${overdue.length}`, 'overdue'));
     overdue.forEach((n) => list.appendChild(renderCard(n)));
@@ -309,8 +330,49 @@ function renderCard(note) {
       toggleTagFilter(btn.dataset.tag);
     });
   });
-  card.querySelector('.card-text').addEventListener('click', () => openEditor(note));
+  card.querySelector('.card-text').addEventListener('click', () => {
+    if (state.trash) trashItemFlow(note);
+    else openEditor(note);
+  });
   return card;
+}
+
+async function trashItemFlow(note) {
+  const choice = await showDialog({
+    title: note.title || notePreview(note) || 'Item',
+    message: 'This item is in the Trash.',
+    actions: [
+      { label: 'Restore', value: 'restore', kind: 'primary' },
+      { label: 'Delete forever', value: 'purge', kind: 'danger' },
+      { label: 'Cancel', value: 'cancel' },
+    ],
+  });
+  if (choice === 'restore') await store.restoreNote(note);
+  else if (choice === 'purge') await store.purgeNote(note);
+  else return;
+  state.notes = await store.cachedNotes();
+  render();
+}
+
+async function emptyTrashFlow() {
+  const choice = await showDialog({
+    title: 'Empty Trash?',
+    message: 'Permanently delete all items in the Trash from Drive. This cannot be undone.',
+    actions: [
+      { label: 'Empty Trash', value: 'yes', kind: 'danger' },
+      { label: 'Cancel', value: 'no' },
+    ],
+  });
+  if (choice !== 'yes') return;
+  setStatus('Emptying trash…', true);
+  try {
+    await store.emptyTrash();
+    state.notes = await store.cachedNotes();
+    render();
+    setStatus('Trash emptied', true);
+  } catch (e) {
+    setStatus(`Could not empty trash: ${e.message}`, true);
+  }
 }
 
 // --- Notebooks view -----------------------------------------------------
@@ -318,6 +380,15 @@ function renderCard(note) {
 function renderNotebookBar() {
   const bar = $('#notebookBar');
   if (!bar) return;
+  if (state.trash) {
+    bar.hidden = false;
+    bar.innerHTML =
+      `<span class="notebook-pill"><span class="nb-ico">&#128465;</span>` +
+      `<strong>Trash</strong>` +
+      `<button class="chip-x" aria-label="Leave trash">&times;</button></span>`;
+    bar.querySelector('.chip-x').addEventListener('click', () => { state.trash = false; render(); });
+    return;
+  }
   if (!state.notebook) { bar.hidden = true; bar.innerHTML = ''; return; }
   bar.hidden = false;
   bar.innerHTML =
@@ -338,24 +409,40 @@ function renderNotebookList() {
   const el = $('#notebookList');
   if (!el) return;
   const books = allNotebooks();
-  const total = state.notes.length;
+  const total = state.notes.filter((n) => !n.deleted).length;
+  const trashCount = state.notes.filter((n) => n.deleted).length;
+  const allActive = !state.notebook && !state.trash;
   let html =
-    `<button class="notebook-item ${!state.notebook ? 'active' : ''}" data-nb="">` +
+    `<button class="notebook-item ${allActive ? 'active' : ''}" data-nb="">` +
     `<span>All notes</span><span class="nb-count">${total}</span></button>`;
   for (const b of books) {
-    const active = state.notebook && state.notebook.toLowerCase() === b.name.toLowerCase();
+    const active = !state.trash && state.notebook && state.notebook.toLowerCase() === b.name.toLowerCase();
     html +=
       `<button class="notebook-item ${active ? 'active' : ''}" data-nb="${escapeAttr(b.name)}">` +
       `<span>${escapeHtml(b.name)}</span><span class="nb-count">${b.count}</span></button>`;
   }
+  html +=
+    `<button class="notebook-item trash ${state.trash ? 'active' : ''}" data-trash="1">` +
+    `<span>&#128465; Trash</span><span class="nb-count">${trashCount}</span></button>`;
   el.innerHTML = html;
   el.querySelectorAll('.notebook-item').forEach((btn) => {
-    btn.addEventListener('click', () => selectNotebook(btn.dataset.nb));
+    btn.addEventListener('click', () => {
+      if (btn.dataset.trash) selectTrash();
+      else selectNotebook(btn.dataset.nb);
+    });
   });
 }
 
 function selectNotebook(name) {
   state.notebook = name || '';
+  state.trash = false;
+  closeDrawer();
+  render();
+}
+
+function selectTrash() {
+  state.trash = true;
+  state.notebook = '';
   closeDrawer();
   render();
 }
@@ -673,6 +760,7 @@ function normalizeTag(raw) {
 function allTags() {
   const counts = new Map();
   for (const n of state.notes) {
+    if (n.deleted) continue;
     for (const t of n.tags || []) {
       const k = t.toLowerCase();
       const e = counts.get(k) || { tag: t, count: 0 };
@@ -786,7 +874,11 @@ async function saveEditor() {
   btn.disabled = true;
   setStatus('Saving…');
   try {
-    await store.saveNote(n);
+    const res = await store.saveNote(n, { onConflict: conflictPrompt });
+    if (res.status === 'cancelled') {
+      setStatus('Save cancelled — reopen to see the other version', true);
+      return; // keep the editor open with the user's text
+    }
     // Refresh in-memory list from cache.
     state.notes = await store.cachedNotes();
     render();
@@ -800,10 +892,24 @@ async function saveEditor() {
   }
 }
 
+// Asked when the file changed on Drive since we opened it.
+function conflictPrompt() {
+  return showDialog({
+    title: 'This item changed elsewhere',
+    message: 'It was edited on another device since you opened it. Keep both versions, or overwrite the other one with yours?',
+    actions: [
+      { label: 'Keep both', value: 'keepBoth', kind: 'primary' },
+      { label: 'Overwrite', value: 'overwrite', kind: 'danger' },
+      { label: 'Cancel', value: 'cancel' },
+    ],
+  });
+}
+
 async function deleteEditor() {
   const n = state.current;
-  if (n.fileId && !confirm('Delete this note?')) return;
-  await store.deleteNote(n);
+  if (!n.fileId) { closeEditor(); return; } // unsaved -> just discard
+  if (!confirm('Move this item to Trash?')) return;
+  await store.softDeleteNote(n);
   state.notes = await store.cachedNotes();
   render();
   closeEditor();
@@ -1067,6 +1173,28 @@ window.addEventListener('popstate', () => {
   overlay = null;
   if (o) o.close();
 });
+
+// Promise-based confirm/choice dialog. actions: [{label, value, kind}].
+function showDialog({ title, message, actions }) {
+  return new Promise((resolve) => {
+    const dlg = $('#dialog');
+    $('#dialogTitle').textContent = title || '';
+    $('#dialogMsg').textContent = message || '';
+    const wrap = $('#dialogActions');
+    wrap.innerHTML = '';
+    const done = (v) => { dlg.hidden = true; document.body.style.overflow = ''; resolve(v); };
+    actions.forEach((a) => {
+      const b = document.createElement('button');
+      b.className = 'dialog-btn ' + (a.kind || '');
+      b.textContent = a.label;
+      b.addEventListener('click', () => done(a.value));
+      wrap.appendChild(b);
+    });
+    dlg.querySelector('.dialog-scrim').onclick = () => done(null);
+    dlg.hidden = false;
+    document.body.style.overflow = 'hidden';
+  });
+}
 
 let statusTimer;
 function setStatus(msg, sticky = false) {

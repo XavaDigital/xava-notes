@@ -214,6 +214,33 @@ body {
   border: 1px solid var(--border); border-radius: 10px; font-size: 15px;
 }
 
+/* Confirm/choice dialog */
+.dialog { position: fixed; inset: 0; z-index: 60; display: grid; place-items: center; padding: 24px; }
+.dialog-scrim { position: absolute; inset: 0; background: rgba(0,0,0,.55); }
+.dialog-card {
+  position: relative; background: var(--surface); border: 1px solid var(--border);
+  border-radius: 16px; padding: 20px; max-width: 380px; width: 100%;
+}
+.dialog-card h3 { margin: 0 0 8px; font-size: 17px; }
+.dialog-card p { margin: 0 0 16px; }
+.dialog-actions { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; }
+.dialog-btn {
+  padding: 9px 16px; border-radius: 9px; border: 1px solid var(--border);
+  background: var(--surface-2); color: var(--text); cursor: pointer; font-size: 14px;
+}
+.dialog-btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.dialog-btn.danger { background: var(--danger); border-color: var(--danger); color: #fff; }
+
+/* Trash view */
+.trash-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 2px 2px 8px; }
+.danger-btn {
+  flex: none; padding: 7px 14px; border-radius: 9px; border: 1px solid var(--danger);
+  background: transparent; color: var(--danger); cursor: pointer; font-size: 14px;
+}
+.danger-btn:active { background: rgba(255,95,86,.12); }
+.notebook-item.trash { margin-top: 6px; border-top: 1px solid var(--border); border-radius: 0; padding-top: 14px; }
+.notebook-item.trash.active { background: var(--accent); border-radius: 10px; color: #fff; }
+
 /* Drag & drop import overlay */
 .drop-zone {
   position: fixed; inset: 0; z-index: 50;

@@ -24,6 +24,8 @@ export function emptyNote(type = 'note') {
     tags: [],
     subtasks: [], // [{text, done}]
     attachments: [], // [{id, name, mime, size}] — id is the Drive file id
+    deleted: false, // soft-deleted (kept on Drive until trash is emptied)
+    deletedAt: '',
     created: now,
     updated: now,
   };
@@ -47,6 +49,7 @@ export function noteToMarkdown(note) {
   }
   if (note.attachments?.length) meta.attachments = note.attachments;
   if (note.tags?.length) meta.tags = note.tags;
+  if (note.deleted) { meta.deleted = true; if (note.deletedAt) meta.deletedAt = note.deletedAt; }
 
   // Body: include the title as an H1 for readability inside Drive.
   let body = '';
@@ -90,6 +93,8 @@ export function noteFromMarkdown(text, fileId) {
           size: Number(a.size) || 0,
         })).filter((a) => a.id)
       : [],
+    deleted: !!meta.deleted,
+    deletedAt: meta.deletedAt || '',
     created: meta.created || new Date().toISOString(),
     updated: meta.updated || meta.created || new Date().toISOString(),
   };

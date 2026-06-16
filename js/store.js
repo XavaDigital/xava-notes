@@ -9,6 +9,7 @@ import {
   noteToMarkdown,
   noteFromMarkdown,
   noteFilename,
+  newId,
 } from './note.js';
 
 const DB_NAME = 'xava-notes';
@@ -79,15 +80,41 @@ function appPropsFor(note) {
   return p;
 }
 
+async function baseModifiedTime(fileId) {
+  if (!fileId) return null;
+  const rows = await idbAll('notes');
+  const row = rows.find((r) => r.note.fileId === fileId);
+  return row ? row.modifiedTime : null;
+}
+
 // Save a note (create or update). Optimistically updates the cache; writes to
 // Drive, queueing if offline.
-export async function saveNote(note) {
+//
+// `onConflict` is called when the file changed on Drive since we loaded it; it
+// should resolve to 'overwrite' | 'keepBoth' | 'cancel'. Returns
+// { status: 'saved' | 'cancelled', note }.
+export async function saveNote(note, { onConflict } = {}) {
+  const base = await baseModifiedTime(note.fileId);
+
+  // Conflict detection (only for existing files, when online).
+  if (note.fileId && navigator.onLine) {
+    try {
+      const meta = await drive.getMeta(note.fileId);
+      if (base && meta.modifiedTime && meta.modifiedTime !== base) {
+        const choice = onConflict ? await onConflict() : 'overwrite';
+        if (choice === 'cancel') return { status: 'cancelled', note };
+        if (choice === 'keepBoth') { note.fileId = null; note.id = newId(); }
+        // 'overwrite' -> fall through
+      }
+    } catch { /* metadata check failed; proceed with save */ }
+  }
+
   note.updated = new Date().toISOString();
   const content = noteToMarkdown(note);
   const name = noteFilename(note);
 
-  // Optimistic local cache update.
-  await idbPut('notes', { id: note.id, note, modifiedTime: note.updated });
+  // Optimistic local cache update (keep the known base time until confirmed).
+  await idbPut('notes', { id: note.id, note, modifiedTime: base || note.updated });
 
   try {
     let meta;
@@ -109,12 +136,25 @@ export async function saveNote(note) {
       throw err;
     }
   }
-  return note;
+  return { status: 'saved', note };
 }
 
-export async function deleteNote(note) {
+// Soft delete: flag the note as deleted but keep the file on Drive.
+export async function softDeleteNote(note) {
+  note.deleted = true;
+  note.deletedAt = new Date().toISOString();
+  return saveNote(note);
+}
+
+export async function restoreNote(note) {
+  note.deleted = false;
+  note.deletedAt = '';
+  return saveNote(note);
+}
+
+// Permanently remove a note (and its attachments) from Drive and the cache.
+export async function purgeNote(note) {
   await idbDelete('notes', note.id);
-  // Best-effort cleanup of attached files in Drive.
   for (const att of note.attachments || []) {
     if (att.id) drive.trashFile(att.id).catch(() => {});
   }
@@ -127,6 +167,14 @@ export async function deleteNote(note) {
     } else {
       throw err;
     }
+  }
+}
+
+// Permanently remove every soft-deleted note.
+export async function emptyTrash() {
+  const rows = await idbAll('notes');
+  for (const r of rows) {
+    if (r.note.deleted) await purgeNote(r.note);
   }
 }
 

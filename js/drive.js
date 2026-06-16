@@ -112,6 +112,12 @@ export async function searchFiles(text) {
   return (data.files || []).filter((f) => f.mimeType !== FOLDER_MIME);
 }
 
+// Lightweight metadata fetch (for conflict detection).
+export async function getMeta(fileId) {
+  const res = await authFetch(`${FILES}/${fileId}?fields=id,modifiedTime,trashed`);
+  return res.json();
+}
+
 // Download a file's text content.
 export async function getContent(fileId) {
   const res = await authFetch(`${FILES}/${fileId}?alt=media`);
