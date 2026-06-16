@@ -189,6 +189,31 @@ body {
 .text-btn { background: transparent; border: none; color: var(--accent); cursor: pointer; font-size: 15px; }
 .text-btn.remove { color: var(--muted); font-size: 20px; }
 
+/* Attachments */
+.attachments-section { display: flex; flex-direction: column; gap: 10px;
+  border-top: 1px solid var(--border); padding: 14px 0; }
+.attach-head { display: flex; justify-content: space-between; align-items: center;
+  color: var(--muted); font-size: 14px; }
+.attachment-list { display: flex; flex-direction: column; gap: 8px; }
+.small { font-size: 12px; }
+.attachment { display: flex; align-items: center; gap: 12px;
+  background: var(--surface); border: 1px solid var(--border);
+  border-radius: 10px; padding: 8px 10px; }
+.attachment .thumb {
+  flex: none; width: 48px; height: 48px; border-radius: 8px;
+  background: var(--surface-2) center/cover no-repeat; cursor: pointer;
+}
+.attachment .thumb.loading { animation: pulse 1.2s ease-in-out infinite; }
+@keyframes pulse { 0%,100% { opacity: .5; } 50% { opacity: 1; } }
+.attachment .file-ico {
+  flex: none; width: 48px; height: 48px; border-radius: 8px;
+  display: grid; place-items: center; font-size: 24px;
+  background: var(--surface-2); cursor: pointer;
+}
+.att-info { flex: 1; min-width: 0; }
+.att-name { word-break: break-word; cursor: pointer; }
+.att-name:hover { color: var(--accent); }
+
 .sheet-foot { display: flex; align-items: center; justify-content: space-between; margin-top: 4px; }
 .editor-meta { color: var(--muted); font-size: 13px; }
 

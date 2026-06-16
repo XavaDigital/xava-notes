@@ -41,21 +41,30 @@ export function parseFrontmatter(text) {
   body = text.slice(match[0].length);
   const lines = match[1].split('\n');
 
-  let inSubtasks = false;
-  let subtasks = [];
+  // Generic block-list state: a key followed by indented "- field: val" items
+  // is parsed as an array of objects (used for subtasks and attachments).
+  let listKey = null;
+  let list = null;
   let current = null;
+
+  const flushList = () => {
+    if (!listKey) return;
+    if (current) { list.push(current); current = null; }
+    if (list.length) meta[listKey] = list;
+    listKey = null;
+    list = null;
+  };
 
   for (const line of lines) {
     if (line.trim() === '') continue;
 
-    // Subtask block handling (indented).
-    if (inSubtasks && /^\s+/.test(line)) {
+    // Inside a block list (indented lines).
+    if (listKey && /^\s+/.test(line)) {
       const itemStart = /^\s*-\s*(.*)$/.exec(line);
       if (itemStart) {
-        if (current) subtasks.push(current);
-        current = { text: '', done: false };
-        const rest = itemStart[1];
-        const kv = /^(\w+):\s*(.*)$/.exec(rest);
+        if (current) list.push(current);
+        current = {};
+        const kv = /^(\w+):\s*(.*)$/.exec(itemStart[1]);
         if (kv) current[kv[1]] = parseScalar(kv[2]);
         continue;
       }
@@ -65,10 +74,8 @@ export function parseFrontmatter(text) {
         continue;
       }
       continue;
-    } else if (inSubtasks) {
-      // De-indented: subtasks block ended.
-      if (current) { subtasks.push(current); current = null; }
-      inSubtasks = false;
+    } else if (listKey) {
+      flushList(); // de-indented: the block list ended
     }
 
     const kv = /^(\w[\w-]*):\s*(.*)$/.exec(line);
@@ -76,9 +83,10 @@ export function parseFrontmatter(text) {
     const key = kv[1];
     const val = kv[2];
 
-    if (key === 'subtasks') {
-      inSubtasks = true;
-      subtasks = [];
+    if (val.trim() === '') {
+      // A key with no inline value begins a block list of objects.
+      listKey = key;
+      list = [];
       current = null;
       continue;
     }
@@ -89,8 +97,7 @@ export function parseFrontmatter(text) {
     }
   }
 
-  if (current) subtasks.push(current);
-  if (inSubtasks || subtasks.length) meta.subtasks = subtasks;
+  flushList();
 
   return { meta, body };
 }
@@ -109,18 +116,21 @@ export function buildFrontmatter(meta, body) {
   const lines = ['---'];
   for (const [key, value] of Object.entries(meta)) {
     if (value === undefined || value === null || value === '') continue;
-    if (key === 'subtasks') {
-      if (!Array.isArray(value) || value.length === 0) continue;
-      lines.push('subtasks:');
-      for (const st of value) {
-        lines.push(`  - text: ${quote(st.text || '')}`);
-        lines.push(`    done: ${st.done ? 'true' : 'false'}`);
-      }
-      continue;
-    }
     if (Array.isArray(value)) {
       if (value.length === 0) continue;
-      lines.push(`${key}: ${serializeValue(value)}`);
+      if (typeof value[0] === 'object' && value[0] !== null) {
+        // Block list of objects (subtasks, attachments, …).
+        lines.push(`${key}:`);
+        for (const obj of value) {
+          Object.entries(obj).forEach(([k, v], i) => {
+            const prefix = i === 0 ? '  - ' : '    ';
+            lines.push(`${prefix}${k}: ${serializeValue(v)}`);
+          });
+        }
+      } else {
+        // Inline array of scalars (tags).
+        lines.push(`${key}: ${serializeValue(value)}`);
+      }
       continue;
     }
     lines.push(`${key}: ${serializeValue(value)}`);

@@ -79,6 +79,16 @@
         </div>
       </div>
 
+      <div class="attachments-section">
+        <div class="attach-head">
+          <span>Attachments</span>
+          <button id="attachBtn" class="text-btn" type="button">+ Add file</button>
+        </div>
+        <input id="attachInput" type="file" multiple hidden
+               accept="image/*,application/pdf,.txt,.doc,.docx,.xls,.xlsx,.csv" />
+        <div id="attachmentList" class="attachment-list"></div>
+      </div>
+
       <label class="field">
         <span>Tags (comma separated)</span>
         <input id="tagsInput" placeholder="e.g. home, work" autocapitalize="off" />

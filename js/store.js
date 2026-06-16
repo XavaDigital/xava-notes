@@ -114,6 +114,10 @@ export async function saveNote(note) {
 
 export async function deleteNote(note) {
   await idbDelete('notes', note.id);
+  // Best-effort cleanup of attached files in Drive.
+  for (const att of note.attachments || []) {
+    if (att.id) drive.trashFile(att.id).catch(() => {});
+  }
   if (!note.fileId) return;
   try {
     await drive.trashFile(note.fileId);

@@ -21,6 +21,7 @@ export function emptyNote(type = 'note') {
     due: '', // YYYY-MM-DD
     tags: [],
     subtasks: [], // [{text, done}]
+    attachments: [], // [{id, name, mime, size}] — id is the Drive file id
     created: now,
     updated: now,
   };
@@ -40,6 +41,7 @@ export function noteToMarkdown(note) {
     if (note.due) meta.due = note.due;
     if (note.subtasks?.length) meta.subtasks = note.subtasks;
   }
+  if (note.attachments?.length) meta.attachments = note.attachments;
   if (note.tags?.length) meta.tags = note.tags;
 
   // Body: include the title as an H1 for readability inside Drive.
@@ -74,6 +76,14 @@ export function noteFromMarkdown(text, fileId) {
     tags: Array.isArray(meta.tags) ? meta.tags.map(String) : [],
     subtasks: Array.isArray(meta.subtasks)
       ? meta.subtasks.map((s) => ({ text: String(s.text || ''), done: !!s.done }))
+      : [],
+    attachments: Array.isArray(meta.attachments)
+      ? meta.attachments.map((a) => ({
+          id: String(a.id || ''),
+          name: String(a.name || ''),
+          mime: String(a.mime || ''),
+          size: Number(a.size) || 0,
+        })).filter((a) => a.id)
       : [],
     created: meta.created || new Date().toISOString(),
     updated: meta.updated || meta.created || new Date().toISOString(),

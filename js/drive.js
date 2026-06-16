@@ -33,29 +33,42 @@ async function authFetch(url, options = {}, retry = true) {
 }
 
 let cachedFolderId = null;
+let cachedAttachmentsFolderId = null;
+
+const ATTACHMENTS_FOLDER = 'attachments';
+
+async function findOrCreateFolder(name, parentId) {
+  const parentClause = parentId ? ` and '${parentId}' in parents` : '';
+  const q = encodeURIComponent(
+    `mimeType='${FOLDER_MIME}' and name='${name}' and trashed=false${parentClause}`
+  );
+  const res = await authFetch(`${FILES}?q=${q}&fields=files(id,name)&spaces=drive`);
+  const data = await res.json();
+  if (data.files?.length) return data.files[0].id;
+
+  const metadata = { name, mimeType: FOLDER_MIME };
+  if (parentId) metadata.parents = [parentId];
+  const createRes = await authFetch(FILES, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(metadata),
+  });
+  return (await createRes.json()).id;
+}
 
 // Find or create the app folder; returns its id.
 export async function ensureFolder() {
   if (cachedFolderId) return cachedFolderId;
-
-  const q = encodeURIComponent(
-    `mimeType='${FOLDER_MIME}' and name='${CONFIG.appFolderName}' and trashed=false`
-  );
-  const res = await authFetch(`${FILES}?q=${q}&fields=files(id,name)&spaces=drive`);
-  const data = await res.json();
-  if (data.files?.length) {
-    cachedFolderId = data.files[0].id;
-    return cachedFolderId;
-  }
-
-  const createRes = await authFetch(FILES, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ name: CONFIG.appFolderName, mimeType: FOLDER_MIME }),
-  });
-  const created = await createRes.json();
-  cachedFolderId = created.id;
+  cachedFolderId = await findOrCreateFolder(CONFIG.appFolderName, null);
   return cachedFolderId;
+}
+
+// Find or create the attachments subfolder; returns its id.
+export async function ensureAttachmentsFolder() {
+  if (cachedAttachmentsFolderId) return cachedAttachmentsFolderId;
+  const parent = await ensureFolder();
+  cachedAttachmentsFolderId = await findOrCreateFolder(ATTACHMENTS_FOLDER, parent);
+  return cachedAttachmentsFolderId;
 }
 
 const FILE_FIELDS = 'id,name,modifiedTime,createdTime,appProperties';
@@ -66,7 +79,9 @@ export async function listFiles() {
   const files = [];
   let pageToken = '';
   do {
-    const q = encodeURIComponent(`'${folderId}' in parents and trashed=false`);
+    const q = encodeURIComponent(
+      `'${folderId}' in parents and trashed=false and mimeType != '${FOLDER_MIME}'`
+    );
     const url =
       `${FILES}?q=${q}&fields=nextPageToken,files(${FILE_FIELDS})` +
       `&orderBy=modifiedTime desc&pageSize=100` +
@@ -84,7 +99,8 @@ export async function searchFiles(text) {
   const folderId = await ensureFolder();
   const safe = text.replace(/'/g, "\\'");
   const q = encodeURIComponent(
-    `'${folderId}' in parents and trashed=false and fullText contains '${safe}'`
+    `'${folderId}' in parents and trashed=false and mimeType != '${FOLDER_MIME}'` +
+    ` and fullText contains '${safe}'`
   );
   const url = `${FILES}?q=${q}&fields=files(${FILE_FIELDS})&pageSize=100`;
   const res = await authFetch(url);
@@ -153,4 +169,39 @@ export async function trashFile(fileId) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ trashed: true }),
   });
+}
+
+// Upload a binary attachment (File/Blob) into the attachments subfolder.
+// Returns { id, name, mimeType, size }.
+export async function uploadAttachment(file) {
+  const folderId = await ensureAttachmentsFolder();
+  const boundary = 'xn-' + Math.random().toString(36).slice(2);
+  const type = file.type || 'application/octet-stream';
+  const metadata = { name: file.name || 'attachment', parents: [folderId] };
+
+  // Build a multipart/related body as a Blob so binary data is sent intact.
+  const pre =
+    `--${boundary}\r\n` +
+    'Content-Type: application/json; charset=UTF-8\r\n\r\n' +
+    JSON.stringify(metadata) +
+    `\r\n--${boundary}\r\n` +
+    `Content-Type: ${type}\r\n\r\n`;
+  const post = `\r\n--${boundary}--`;
+  const body = new Blob([pre, file, post]);
+
+  const res = await authFetch(
+    `${UPLOAD}?uploadType=multipart&fields=id,name,mimeType,size`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': `multipart/related; boundary=${boundary}` },
+      body,
+    }
+  );
+  return res.json();
+}
+
+// Download an attachment's bytes as a Blob (for previews / opening).
+export async function getBlob(fileId) {
+  const res = await authFetch(`${FILES}/${fileId}?alt=media`);
+  return res.blob();
 }

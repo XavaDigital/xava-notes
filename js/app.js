@@ -3,6 +3,7 @@
 import { getClientId, setClientId } from './config.js';
 import { signIn, signOut, isSignedIn, onAuthChange, getToken } from './auth.js';
 import * as store from './store.js';
+import * as drive from './drive.js';
 import { emptyNote, notePreview } from './note.js';
 
 const $ = (sel) => document.querySelector(sel);
@@ -119,6 +120,7 @@ function renderCard(note) {
         <div class="card-meta">
           ${isTask && note.due ? `<span class="badge ${isOverdue(note) ? 'overdue' : ''}">${formatDue(note.due)}</span>` : ''}
           ${subTotal ? `<span class="badge">${subDone}/${subTotal} subtasks</span>` : ''}
+          ${(note.attachments || []).length ? `<span class="badge">📎 ${note.attachments.length}</span>` : ''}
           ${(note.tags || []).map((t) => `<span class="tag">#${escapeHtml(t)}</span>`).join('')}
         </div>
       </div>
@@ -148,6 +150,7 @@ function openEditor(note) {
   $('#tagsInput').value = (note.tags || []).join(', ');
   setType(note.type);
   renderSubtasks(note);
+  renderAttachments(note);
   $('#editorMeta').textContent = note.fileId
     ? `Edited ${formatWhen(note.updated)}`
     : 'New';
@@ -185,6 +188,97 @@ function renderSubtasks(note) {
   });
 }
 
+// Cache of object URLs for attachment previews (per session).
+const blobUrlCache = new Map();
+async function attachmentUrl(att) {
+  if (blobUrlCache.has(att.id)) return blobUrlCache.get(att.id);
+  const blob = await drive.getBlob(att.id);
+  const url = URL.createObjectURL(blob);
+  blobUrlCache.set(att.id, url);
+  return url;
+}
+
+function renderAttachments(note) {
+  const wrap = $('#attachmentList');
+  wrap.innerHTML = '';
+  const atts = note.attachments || [];
+  if (!atts.length) {
+    wrap.innerHTML = '<span class="muted small">No files attached.</span>';
+    return;
+  }
+  atts.forEach((att, i) => {
+    const isImg = (att.mime || '').startsWith('image/');
+    const item = document.createElement('div');
+    item.className = 'attachment';
+    item.innerHTML = `
+      ${isImg ? '<div class="thumb loading"></div>' : '<div class="file-ico">📄</div>'}
+      <div class="att-info">
+        <div class="att-name">${escapeHtml(att.name)}</div>
+        <div class="att-size muted small">${formatSize(att.size)}</div>
+      </div>
+      <button class="text-btn remove" aria-label="Remove">&times;</button>`;
+
+    const open = async () => {
+      try {
+        const url = await attachmentUrl(att);
+        window.open(url, '_blank');
+      } catch (e) {
+        setStatus(`Could not open file: ${e.message}`, true);
+      }
+    };
+
+    if (isImg) {
+      const thumb = item.querySelector('.thumb');
+      attachmentUrl(att)
+        .then((url) => {
+          thumb.style.backgroundImage = `url("${url}")`;
+          thumb.classList.remove('loading');
+        })
+        .catch(() => thumb.classList.remove('loading'));
+      thumb.addEventListener('click', open);
+    } else {
+      item.querySelector('.file-ico').addEventListener('click', open);
+      item.querySelector('.att-name').addEventListener('click', open);
+    }
+
+    item.querySelector('.remove').addEventListener('click', async () => {
+      if (!confirm('Remove this attachment?')) return;
+      try { await drive.trashFile(att.id); } catch {}
+      blobUrlCache.delete(att.id);
+      note.attachments.splice(i, 1);
+      renderAttachments(note);
+    });
+
+    wrap.appendChild(item);
+  });
+}
+
+async function handleAttachFiles(files) {
+  const note = state.current;
+  if (!isSignedIn()) {
+    try { await getToken({ interactive: true }); }
+    catch (e) { setStatus(`Connect Google Drive first: ${e.message}`, true); return; }
+  }
+  note.attachments = note.attachments || [];
+  for (const file of files) {
+    setStatus(`Uploading ${file.name}…`, true);
+    try {
+      const meta = await drive.uploadAttachment(file);
+      note.attachments.push({
+        id: meta.id,
+        name: meta.name || file.name,
+        mime: meta.mimeType || file.type || '',
+        size: Number(meta.size) || file.size || 0,
+      });
+      renderAttachments(note);
+    } catch (err) {
+      setStatus(`Upload failed: ${err.message}`, true);
+      return;
+    }
+  }
+  setStatus('');
+}
+
 function collectEditor() {
   const n = state.current;
   n.title = $('#titleInput').value.trim();
@@ -197,7 +291,7 @@ function collectEditor() {
 async function saveEditor() {
   collectEditor();
   const n = state.current;
-  if (!n.title && !n.body.trim() && !(n.subtasks || []).length) {
+  if (!n.title && !n.body.trim() && !(n.subtasks || []).length && !(n.attachments || []).length) {
     closeEditor();
     return;
   }
@@ -279,6 +373,12 @@ function wireEvents() {
     setType('task');
     renderSubtasks(state.current);
   });
+  $('#attachBtn').addEventListener('click', () => $('#attachInput').click());
+  $('#attachInput').addEventListener('change', async (e) => {
+    const files = Array.from(e.target.files || []);
+    e.target.value = ''; // allow re-selecting the same file later
+    if (files.length) await handleAttachFiles(files);
+  });
 
   // Settings
   $('#settingsBack').addEventListener('click', () => hide('#settings'));
@@ -318,6 +418,14 @@ function escapeHtml(s) {
 }
 function escapeAttr(s) {
   return escapeHtml(s).replace(/"/g, '&quot;');
+}
+
+function formatSize(bytes) {
+  if (!bytes) return '';
+  const units = ['B', 'KB', 'MB', 'GB'];
+  let n = bytes, i = 0;
+  while (n >= 1024 && i < units.length - 1) { n /= 1024; i++; }
+  return `${n.toFixed(n < 10 && i > 0 ? 1 : 0)} ${units[i]}`;
 }
 
 function isToday(ymd) {

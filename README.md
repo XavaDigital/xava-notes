@@ -13,6 +13,7 @@ the app talks to Drive directly from your browser.
 - 📝 Quick capture of **notes** and **tasks** from any device
 - 🎙️ Voice-friendly: plain text fields work with any OS dictation
 - ✅ Tasks with **completion**, **subtasks**, **due dates**, and **tags**
+- 📎 **Image & file attachments** — stored in a `XavaNotes/attachments` subfolder in your Drive; images preview as thumbnails
 - 🔍 Instant search across titles, bodies, tags, and subtasks
 - 📲 Installable **PWA** (add to home screen on Android; runs in any browser on Windows)
 - ⚡ Offline-capable: notes are cached locally and synced to Drive when online
