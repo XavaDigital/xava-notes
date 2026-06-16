@@ -103,22 +103,22 @@ body {
 .tag:hover { border-color: var(--accent); }
 .tag.active { background: var(--accent); color: #fff; }
 
-/* Active tag filter pill */
-.active-tag {
-  padding: 0 12px 10px; max-width: 760px; width: 100%; margin: 0 auto;
+/* Tag bar (one-tap, multi-select filtering) */
+.tag-bar {
+  display: flex; gap: 8px; overflow-x: auto;
+  padding: 0 12px 10px; background: var(--bg-2);
+  border-bottom: 1px solid var(--border);
+  scrollbar-width: none;
 }
-.active-pill {
-  display: inline-flex; align-items: center; gap: 4px;
-  background: var(--surface-2); color: var(--muted);
-  border: 1px solid var(--border); border-radius: 999px;
-  padding: 5px 6px 5px 12px; font-size: 13px;
+.tag-bar::-webkit-scrollbar { display: none; }
+.tagbar-chip {
+  flex: none; padding: 5px 12px; font-size: 13px; font-family: inherit;
+  background: var(--surface); color: var(--accent);
+  border: 1px solid var(--border); border-radius: 999px; cursor: pointer;
 }
-.active-pill strong { color: var(--accent); margin: 0 2px; }
-.active-pill .chip-x {
-  background: none; border: none; color: var(--muted);
-  cursor: pointer; font-size: 16px; line-height: 1; padding: 0 4px;
-}
-.active-pill .chip-x:hover { color: var(--danger); }
+.tagbar-chip.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+.tagbar-chip.clear { color: var(--muted); }
+.tagbar-chip.clear:hover { color: var(--danger); border-color: var(--danger); }
 
 .check {
   flex: none; width: 22px; height: 22px; margin-top: 1px;

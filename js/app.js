@@ -12,7 +12,7 @@ const state = {
   notes: [],
   filter: 'all',
   query: '',
-  tag: null, // active tag filter (from tapping a card tag)
+  tags: [], // active tag filters (from tapping cards or the tag bar) — ANDed
   current: null, // note being edited
 };
 
@@ -90,12 +90,10 @@ function parseSearch(q) {
   return { tags, text: words.join(' ') };
 }
 
-// All tags currently required: the tapped tag plus any #tags in the search box.
+// All tags currently required: the tapped tags plus any #tags in the search box.
 function activeTagFilters() {
   const { tags } = parseSearch(state.query);
-  const all = [...tags];
-  if (state.tag) all.push(state.tag);
-  return all;
+  return [...state.tags, ...tags];
 }
 
 function passesFilters(note) {
@@ -117,10 +115,10 @@ function passesFilters(note) {
 }
 
 function render() {
-  renderActiveTag();
+  renderTagBar();
   const list = $('#list');
   const items = state.notes.filter(passesFilters);
-  const filtering = state.query || state.tag || state.filter !== 'all';
+  const filtering = state.query || state.tags.length || state.filter !== 'all';
 
   if (items.length === 0) {
     list.innerHTML = `<div class="empty">
@@ -136,22 +134,40 @@ function render() {
   }
 }
 
-// Show a removable pill for the tapped-tag filter.
-function renderActiveTag() {
-  const bar = $('#activeTag');
-  if (!state.tag) { bar.hidden = true; bar.innerHTML = ''; return; }
+function isTagActive(tag) {
+  const k = tag.toLowerCase();
+  return state.tags.some((t) => t.toLowerCase() === k);
+}
+
+// Scrollable bar of all tags (most-used first); active ones highlighted.
+function renderTagBar() {
+  const bar = $('#tagBar');
+  const tags = allTags();
+  if (!tags.length) { bar.hidden = true; bar.innerHTML = ''; return; }
   bar.hidden = false;
-  bar.innerHTML =
-    `<span class="active-pill">Filtering by <strong>#${escapeHtml(state.tag)}</strong>` +
-    `<button class="chip-x" aria-label="Clear tag filter">&times;</button></span>`;
-  bar.querySelector('.chip-x').addEventListener('click', () => {
-    state.tag = null;
-    render();
+
+  let html = '';
+  if (state.tags.length) {
+    html += '<button class="tagbar-chip clear" data-clear="1">&times; Clear</button>';
+  }
+  for (const t of tags) {
+    html += `<button class="tagbar-chip ${isTagActive(t) ? 'active' : ''}" data-tag="${escapeAttr(t)}">#${escapeHtml(t)}</button>`;
+  }
+  bar.innerHTML = html;
+  bar.querySelectorAll('.tagbar-chip').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      if (btn.dataset.clear) { state.tags = []; render(); }
+      else toggleTagFilter(btn.dataset.tag);
+    });
   });
 }
 
+// Toggle a tag in/out of the active filter set.
 function toggleTagFilter(tag) {
-  state.tag = state.tag && state.tag.toLowerCase() === tag.toLowerCase() ? null : tag;
+  const k = tag.toLowerCase();
+  const i = state.tags.findIndex((t) => t.toLowerCase() === k);
+  if (i >= 0) state.tags.splice(i, 1);
+  else state.tags.push(tag);
   render();
 }
 
@@ -174,7 +190,7 @@ function renderCard(note) {
           ${isTask && note.due ? `<span class="badge ${isOverdue(note) ? 'overdue' : ''}">${formatDue(note.due)}</span>` : ''}
           ${subTotal ? `<span class="badge">${subDone}/${subTotal} subtasks</span>` : ''}
           ${(note.attachments || []).length ? `<span class="badge">📎 ${note.attachments.length}</span>` : ''}
-          ${(note.tags || []).map((t) => `<button class="tag ${state.tag && state.tag.toLowerCase() === t.toLowerCase() ? 'active' : ''}" data-tag="${escapeAttr(t)}">#${escapeHtml(t)}</button>`).join('')}
+          ${(note.tags || []).map((t) => `<button class="tag ${isTagActive(t) ? 'active' : ''}" data-tag="${escapeAttr(t)}">#${escapeHtml(t)}</button>`).join('')}
         </div>
       </div>
     </div>`;
