@@ -1,0 +1,19 @@
+{
+  "name": "Xava Notes",
+  "short_name": "Xava",
+  "description": "Quick voice-friendly notes & tasks, synced to your Google Drive.",
+  "start_url": ".",
+  "scope": ".",
+  "display": "standalone",
+  "background_color": "#0e1116",
+  "theme_color": "#11141a",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "icons/icon.svg",
+      "type": "image/svg+xml",
+      "sizes": "any",
+      "purpose": "any maskable"
+    }
+  ]
+}

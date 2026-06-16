@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#11141a" />
+  <title>Xava Notes</title>
+  <link rel="manifest" href="manifest.webmanifest" />
+  <link rel="icon" href="icons/icon.svg" type="image/svg+xml" />
+  <link rel="apple-touch-icon" href="icons/icon.svg" />
+  <link rel="stylesheet" href="css/styles.css" />
+</head>
+<body>
+  <div id="app">
+    <!-- Top bar -->
+    <header class="topbar">
+      <button id="menuBtn" class="icon-btn" title="Menu" aria-label="Menu">&#9776;</button>
+      <div class="search-wrap">
+        <input id="searchInput" type="search" placeholder="Search notes &amp; tasks&hellip;"
+               autocomplete="off" autocapitalize="off" />
+      </div>
+      <button id="syncBtn" class="icon-btn" title="Sync now" aria-label="Sync">&#8635;</button>
+    </header>
+
+    <!-- Filter chips -->
+    <nav id="filters" class="filters">
+      <button class="chip active" data-filter="all">All</button>
+      <button class="chip" data-filter="task">Tasks</button>
+      <button class="chip" data-filter="note">Notes</button>
+      <button class="chip" data-filter="today">Due today</button>
+      <button class="chip" data-filter="open">Open</button>
+    </nav>
+
+    <!-- Main list -->
+    <main id="list" class="list" aria-live="polite"></main>
+
+    <!-- Status / offline banner -->
+    <div id="status" class="status" hidden></div>
+
+    <!-- Floating capture button -->
+    <button id="fab" class="fab" title="New note" aria-label="New note">+</button>
+  </div>
+
+  <!-- Editor sheet -->
+  <div id="editor" class="sheet" hidden>
+    <div class="sheet-inner">
+      <div class="sheet-head">
+        <button id="editorBack" class="icon-btn" aria-label="Back">&#8592;</button>
+        <div class="type-toggle" role="group" aria-label="Type">
+          <button id="typeNote" class="type-opt" data-type="note">Note</button>
+          <button id="typeTask" class="type-opt" data-type="task">Task</button>
+        </div>
+        <button id="editorDelete" class="icon-btn danger" aria-label="Delete">&#128465;</button>
+      </div>
+
+      <input id="titleInput" class="title-input" placeholder="Title"
+             autocapitalize="sentences" />
+
+      <textarea id="bodyInput" class="body-input"
+                placeholder="Type or tap the mic on your keyboard to dictate&hellip;"
+                autocapitalize="sentences"></textarea>
+
+      <div id="taskFields" class="task-fields" hidden>
+        <label class="field">
+          <span>Due date</span>
+          <input id="dueInput" type="date" />
+        </label>
+        <label class="field done-field">
+          <input id="doneInput" type="checkbox" />
+          <span>Completed</span>
+        </label>
+
+        <div class="subtasks">
+          <div class="subtasks-head">
+            <span>Subtasks</span>
+            <button id="addSubtask" class="text-btn">+ Add</button>
+          </div>
+          <ul id="subtaskList" class="subtask-list"></ul>
+        </div>
+      </div>
+
+      <label class="field">
+        <span>Tags (comma separated)</span>
+        <input id="tagsInput" placeholder="e.g. home, work" autocapitalize="off" />
+      </label>
+
+      <div class="sheet-foot">
+        <span id="editorMeta" class="editor-meta"></span>
+        <button id="editorSave" class="primary-btn">Save</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Settings / sign-in sheet -->
+  <div id="settings" class="sheet" hidden>
+    <div class="sheet-inner">
+      <div class="sheet-head">
+        <button id="settingsBack" class="icon-btn" aria-label="Back">&#8592;</button>
+        <h2>Settings</h2>
+        <span></span>
+      </div>
+
+      <section class="settings-section">
+        <h3>Google account</h3>
+        <p id="accountStatus" class="muted">Not connected.</p>
+        <div class="row">
+          <button id="signInBtn" class="primary-btn">Connect Google Drive</button>
+          <button id="signOutBtn" class="secondary-btn" hidden>Disconnect</button>
+        </div>
+      </section>
+
+      <section class="settings-section">
+        <h3>Google OAuth Client ID</h3>
+        <p class="muted">
+          Paste the Web Client ID you created in Google Cloud Console.
+          See the README for the 2-minute setup.
+        </p>
+        <input id="clientIdInput" class="mono" placeholder="xxxxxxxx.apps.googleusercontent.com"
+               autocapitalize="off" autocomplete="off" spellcheck="false" />
+        <button id="saveClientId" class="secondary-btn">Save Client ID</button>
+      </section>
+
+      <section class="settings-section">
+        <h3>About</h3>
+        <p class="muted">
+          Xava Notes &mdash; your notes &amp; tasks are stored as Markdown files in a
+          <strong>XavaNotes</strong> folder in your own Google Drive.
+        </p>
+      </section>
+    </div>
+  </div>
+
+  <!-- Google Identity Services -->
+  <script src="https://accounts.google.com/gsi/client" async defer></script>
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>
