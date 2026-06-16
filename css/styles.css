@@ -517,6 +517,7 @@ body {
 .tag-opt.create { color: var(--accent); }
 
 .sheet-foot { display: flex; align-items: center; justify-content: space-between; margin-top: 4px; gap: 8px; }
+.foot-actions { display: flex; align-items: center; gap: 8px; }
 
 /* Read-only editor: hide all editing affordances, show Edit instead of Save */
 .sheet:not(.readonly) #editorEdit { display: none; }

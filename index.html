@@ -94,7 +94,7 @@
           <button id="typeNote" class="type-opt" data-type="note">Note</button>
           <button id="typeTask" class="type-opt" data-type="task">Task</button>
         </div>
-        <button id="editorDelete" class="icon-btn danger" aria-label="Delete">&#128465;</button>
+        <span id="editorMeta" class="editor-meta"></span>
       </div>
 
       <input id="titleInput" class="title-input" placeholder="Title"
@@ -175,9 +175,11 @@
       </div>
 
       <div class="sheet-foot">
-        <span id="editorMeta" class="editor-meta"></span>
-        <button id="editorEdit" class="primary-btn">Edit</button>
-        <button id="editorSave" class="primary-btn">Save</button>
+        <button id="editorDelete" class="danger-btn">&#128465; Delete</button>
+        <div class="foot-actions">
+          <button id="editorEdit" class="primary-btn">Edit</button>
+          <button id="editorSave" class="primary-btn">Save</button>
+        </div>
       </div>
     </div>
   </div>
