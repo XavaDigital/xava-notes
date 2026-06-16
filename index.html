@@ -27,6 +27,7 @@
         <input id="searchInput" type="search" placeholder="Search&hellip; (try #tag)"
                autocomplete="off" autocapitalize="off" />
       </div>
+      <button id="selectBtn" class="icon-btn" title="Select multiple" aria-label="Select">&#9745;</button>
       <button id="sortBtn" class="icon-btn" title="Sort by due date / recent" aria-label="Sort">&#8645;</button>
       <button id="syncBtn" class="icon-btn" title="Sync now" aria-label="Sync">&#8635;</button>
     </header>
@@ -55,6 +56,17 @@
 
     <!-- Floating capture button -->
     <button id="fab" class="fab" title="New note" aria-label="New note">+</button>
+
+    <!-- Multi-select action bar -->
+    <div id="selectionBar" class="selection-bar" hidden>
+      <span id="selCount" class="sel-count">0 selected</span>
+      <div class="sel-actions">
+        <button id="selAll" class="sel-act">Select all</button>
+        <button id="selNotebook" class="sel-act">Notebook</button>
+        <button id="selDelete" class="sel-act danger">Delete</button>
+        <button id="selClose" class="sel-act" aria-label="Done">Done</button>
+      </div>
+    </div>
   </div>
 
   <!-- Notebooks drawer -->

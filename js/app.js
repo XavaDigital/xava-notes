@@ -19,6 +19,8 @@ const state = {
   trash: false, // viewing the Trash (soft-deleted items)
   sort: 'date', // 'date' = by due date (overdue first), 'recent' = by last edited
   current: null, // note being edited
+  selectMode: false, // bulk multi-select
+  selected: new Set(), // selected note ids
 };
 
 let draggingNoteId = null; // id of the card being dragged onto a notebook
@@ -244,6 +246,7 @@ function render() {
   try { renderTagBar(); } catch (e) { console.warn('Xava Notes: tag bar render failed', e); }
   try { renderNotebookBar(); } catch (e) { console.warn('Xava Notes: notebook bar failed', e); }
   try { renderNotebooksUI(); } catch (e) { console.warn('Xava Notes: notebooks UI failed', e); }
+  try { renderSelectionBar(); } catch (e) { console.warn('Xava Notes: selection bar failed', e); }
   const list = $('#list');
   if (!list) return;
 
@@ -361,6 +364,18 @@ function renderCard(note) {
       </div>
     </div>`;
 
+  // Multi-select mode: the whole card toggles selection; skip normal wiring.
+  if (state.selectMode) {
+    card.classList.add('selectable');
+    const on = state.selected.has(note.id);
+    card.classList.toggle('selected', on);
+    card.querySelector('.card-main').insertAdjacentHTML(
+      'afterbegin', `<span class="sel-box ${on ? 'on' : ''}"></span>`
+    );
+    card.addEventListener('click', () => toggleSelect(note.id));
+    return card;
+  }
+
   if (isTask) {
     card.querySelector('.check').addEventListener('click', async (e) => {
       e.stopPropagation();
@@ -433,6 +448,99 @@ async function emptyTrashFlow() {
   } catch (e) {
     setStatus(`Could not empty trash: ${e.message}`, true);
   }
+}
+
+// --- Multi-select / bulk actions ---------------------------------------
+
+function toggleSelectMode(on) {
+  state.selectMode = on;
+  if (!on) state.selected.clear();
+  const fab = $('#fab');
+  if (fab) fab.hidden = on; // avoid overlap with the selection bar
+  render();
+}
+
+function toggleSelect(id) {
+  if (state.selected.has(id)) state.selected.delete(id);
+  else state.selected.add(id);
+  render();
+}
+
+function renderSelectionBar() {
+  const bar = $('#selectionBar');
+  if (!bar) return;
+  bar.hidden = !state.selectMode;
+  const selectBtn = $('#selectBtn');
+  if (selectBtn) selectBtn.classList.toggle('active', state.selectMode);
+  if (state.selectMode) {
+    const n = state.selected.size;
+    $('#selCount').textContent = `${n} selected`;
+    $('#selNotebook').disabled = n === 0;
+    $('#selDelete').disabled = n === 0;
+  }
+}
+
+function selectAllVisible() {
+  for (const note of state.notes.filter(passesFilters)) state.selected.add(note.id);
+  render();
+}
+
+function pickNotebook() {
+  const actions = [{ label: 'No notebook', value: '' }];
+  for (const b of allNotebooks()) actions.push({ label: b.name, value: b.name });
+  actions.push({ label: '+ New notebook…', value: '__new__', kind: 'primary' });
+  actions.push({ label: 'Cancel', value: null });
+  return showDialog({
+    title: 'Move to notebook',
+    message: `File the ${state.selected.size} selected item(s) into:`,
+    actions,
+  });
+}
+
+async function bulkAssignNotebook() {
+  if (!state.selected.size) return;
+  let target = await pickNotebook();
+  if (target === null) return;
+  if (target === '__new__') {
+    target = createNotebook();
+    if (!target) return;
+  }
+  const ids = [...state.selected];
+  let done = 0;
+  for (const id of ids) {
+    const note = state.notes.find((n) => n.id === id);
+    if (!note) continue;
+    note.notebook = target;
+    await store.saveNote(note);
+    setStatus(`Filing ${++done} of ${ids.length}…`, true, true);
+  }
+  state.notes = await store.cachedNotes();
+  toggleSelectMode(false);
+  setStatus(`Moved ${done} item${done === 1 ? '' : 's'}${target ? ` to ${target}` : ''}`, true);
+}
+
+async function bulkDelete() {
+  if (!state.selected.size) return;
+  const choice = await showDialog({
+    title: `Move ${state.selected.size} item(s) to Trash?`,
+    message: 'They stay on Drive until you empty the Trash.',
+    actions: [
+      { label: 'Move to Trash', value: 'yes', kind: 'danger' },
+      { label: 'Cancel', value: 'no' },
+    ],
+  });
+  if (choice !== 'yes') return;
+  const ids = [...state.selected];
+  let done = 0;
+  for (const id of ids) {
+    const note = state.notes.find((n) => n.id === id);
+    if (!note) continue;
+    await store.softDeleteNote(note);
+    setStatus(`Deleting ${++done} of ${ids.length}…`, true, true);
+  }
+  state.notes = await store.cachedNotes();
+  toggleSelectMode(false);
+  setStatus(`Moved ${done} item${done === 1 ? '' : 's'} to Trash`, true);
 }
 
 // --- Notebooks view -----------------------------------------------------
@@ -1143,6 +1251,11 @@ function wireEvents() {
     setStatus(state.sort === 'date' ? 'Sorted by due date' : 'Sorted by most recent');
     render();
   });
+  $('#selectBtn').addEventListener('click', () => toggleSelectMode(!state.selectMode));
+  $('#selClose').addEventListener('click', () => toggleSelectMode(false));
+  $('#selAll').addEventListener('click', selectAllVisible);
+  $('#selNotebook').addEventListener('click', bulkAssignNotebook);
+  $('#selDelete').addEventListener('click', bulkDelete);
 
   let searchTimer;
   $('#searchInput').addEventListener('input', (e) => {
