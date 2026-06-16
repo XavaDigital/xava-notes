@@ -13,6 +13,7 @@ const state = {
   filter: 'all',
   query: '',
   tags: [], // active tag filters (from tapping cards or the tag bar) — ANDed
+  sort: 'date', // 'date' = by due date (overdue first), 'recent' = by last edited
   current: null, // note being edited
 };
 
@@ -134,11 +135,38 @@ function passesFilters(note) {
   return true;
 }
 
+// Sort comparators.
+function byDueDate(a, b) {
+  const da = a.due || '', db = b.due || '';
+  if (da && db) return da.localeCompare(db); // soonest (and most overdue) first
+  if (da) return -1; // dated items before undated
+  if (db) return 1;
+  return (b.updated || '').localeCompare(a.updated || ''); // undated: most recent
+}
+function byRecent(a, b) {
+  return (b.updated || '').localeCompare(a.updated || '');
+}
+
+function sortItems(items) {
+  return [...items].sort(state.sort === 'date' ? byDueDate : byRecent);
+}
+
+function sectionHeader(label, extraClass = '') {
+  const h = document.createElement('div');
+  h.className = `section-head ${extraClass}`.trim();
+  h.textContent = label;
+  return h;
+}
+
 function render() {
   try { renderTagBar(); } catch (e) { console.warn('Xava Notes: tag bar render failed', e); }
   const list = $('#list');
   if (!list) return;
-  const items = state.notes.filter(passesFilters);
+
+  const sortBtn = $('#sortBtn');
+  if (sortBtn) sortBtn.classList.toggle('active', state.sort === 'date');
+
+  const items = sortItems(state.notes.filter(passesFilters));
   const filtering = state.query || state.tags.length || state.filter !== 'all';
 
   if (items.length === 0) {
@@ -149,10 +177,19 @@ function render() {
     return;
   }
 
+  // In the default (by-date) view, float overdue items into a labelled section
+  // at the top so anything past due is impossible to miss.
+  const grouped = state.sort === 'date' && state.filter !== 'overdue';
+  const overdue = grouped ? items.filter(isOverdue) : [];
+  const rest = grouped ? items.filter((n) => !isOverdue(n)) : items;
+
   list.innerHTML = '';
-  for (const note of items) {
-    list.appendChild(renderCard(note));
+  if (overdue.length) {
+    list.appendChild(sectionHeader(`Overdue · ${overdue.length}`, 'overdue'));
+    overdue.forEach((n) => list.appendChild(renderCard(n)));
+    if (rest.length) list.appendChild(sectionHeader('Everything else'));
   }
+  rest.forEach((n) => list.appendChild(renderCard(n)));
 }
 
 function isTagActive(tag) {
@@ -546,6 +583,11 @@ function wireEvents() {
   $('#fab').addEventListener('click', () => openEditor(emptyNote('note')));
   $('#menuBtn').addEventListener('click', openSettings);
   $('#syncBtn').addEventListener('click', refresh);
+  $('#sortBtn').addEventListener('click', () => {
+    state.sort = state.sort === 'date' ? 'recent' : 'date';
+    setStatus(state.sort === 'date' ? 'Sorted by due date' : 'Sorted by most recent');
+    render();
+  });
 
   let searchTimer;
   $('#searchInput').addEventListener('input', (e) => {
