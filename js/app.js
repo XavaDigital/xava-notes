@@ -87,7 +87,8 @@ function matchesFilter(note) {
     case 'task': return note.type === 'task';
     case 'note': return note.type === 'note';
     case 'open': return note.type === 'task' && !note.done;
-    case 'today': return note.type === 'task' && note.due && isToday(note.due);
+    case 'overdue': return isOverdue(note);
+    case 'today': return note.due && isToday(note.due);
     default: return true;
   }
 }
@@ -194,7 +195,9 @@ function toggleTagFilter(tag) {
 
 function renderCard(note) {
   const card = document.createElement('article');
-  card.className = 'card' + (note.type === 'task' && note.done ? ' done' : '');
+  card.className = 'card'
+    + (note.type === 'task' && note.done ? ' done' : '')
+    + (isOverdue(note) ? ' overdue' : '');
   card.dataset.id = note.id;
 
   const isTask = note.type === 'task';
@@ -208,7 +211,7 @@ function renderCard(note) {
         <div class="card-title">${escapeHtml(note.title || notePreview(note) || 'Untitled')}</div>
         ${note.title && note.body ? `<div class="card-preview">${escapeHtml(notePreview(note))}</div>` : ''}
         <div class="card-meta">
-          ${isTask && note.due ? `<span class="badge ${isOverdue(note) ? 'overdue' : ''}">${formatDue(note.due)}</span>` : ''}
+          ${note.due ? `<span class="badge ${isOverdue(note) ? 'overdue' : ''}">${formatDue(note.due)}</span>` : ''}
           ${subTotal ? `<span class="badge">${subDone}/${subTotal} subtasks</span>` : ''}
           ${(note.attachments || []).length ? `<span class="badge">📎 ${note.attachments.length}</span>` : ''}
           ${(note.tags || []).map((t) => `<button class="tag ${isTagActive(t) ? 'active' : ''}" data-tag="${escapeAttr(t)}">#${escapeHtml(t)}</button>`).join('')}
@@ -221,6 +224,7 @@ function renderCard(note) {
       e.stopPropagation();
       note.done = !note.done;
       card.classList.toggle('done', note.done);
+      card.classList.toggle('overdue', isOverdue(note));
       card.querySelector('.check').classList.toggle('checked', note.done);
       await store.saveNote(note);
     });
@@ -572,6 +576,7 @@ function wireEvents() {
     setType('task');
     renderSubtasks(state.current);
   });
+  $('#clearDue').addEventListener('click', () => { $('#dueInput').value = ''; });
   $('#attachBtn').addEventListener('click', () => $('#attachInput').click());
   $('#attachInput').addEventListener('change', async (e) => {
     const files = Array.from(e.target.files || []);
@@ -652,7 +657,9 @@ function isToday(ymd) {
   return ymd === new Date().toISOString().slice(0, 10);
 }
 function isOverdue(note) {
-  return note.type === 'task' && !note.done && note.due && note.due < new Date().toISOString().slice(0, 10);
+  if (!note.due) return false;
+  if (note.type === 'task' && note.done) return false; // completed tasks aren't overdue
+  return note.due < new Date().toISOString().slice(0, 10);
 }
 function formatDue(ymd) {
   const today = new Date().toISOString().slice(0, 10);

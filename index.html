@@ -27,6 +27,7 @@
       <button class="chip active" data-filter="all">All</button>
       <button class="chip" data-filter="task">Tasks</button>
       <button class="chip" data-filter="note">Notes</button>
+      <button class="chip" data-filter="overdue">Overdue</button>
       <button class="chip" data-filter="today">Due today</button>
       <button class="chip" data-filter="open">Open</button>
     </nav>
@@ -63,11 +64,15 @@
                 placeholder="Type or tap the mic on your keyboard to dictate&hellip;"
                 autocapitalize="sentences"></textarea>
 
-      <div id="taskFields" class="task-fields" hidden>
-        <label class="field">
-          <span>Due date</span>
+      <label class="field">
+        <span>Date / due date</span>
+        <div class="date-row">
           <input id="dueInput" type="date" />
-        </label>
+          <button id="clearDue" class="text-btn" type="button">Clear</button>
+        </div>
+      </label>
+
+      <div id="taskFields" class="task-fields" hidden>
         <label class="field done-field">
           <input id="doneInput" type="checkbox" />
           <span>Completed</span>

@@ -36,9 +36,10 @@ export function noteToMarkdown(note) {
     updated: note.updated,
   };
   if (note.title) meta.title = note.title;
+  // A date/due date applies to both notes and tasks.
+  if (note.due) meta.due = note.due;
   if (note.type === 'task') {
     meta.done = !!note.done;
-    if (note.due) meta.due = note.due;
     if (note.subtasks?.length) meta.subtasks = note.subtasks;
   }
   if (note.attachments?.length) meta.attachments = note.attachments;

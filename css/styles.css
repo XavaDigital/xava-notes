@@ -81,6 +81,7 @@ body {
 }
 .card:active { border-color: var(--accent); }
 .card.done { opacity: .55; }
+.card.overdue { box-shadow: inset 4px 0 0 var(--danger); border-color: rgba(255,95,86,.4); }
 .card.done .card-title { text-decoration: line-through; }
 .card-main { display: flex; gap: 12px; align-items: flex-start; }
 .card-text { flex: 1; min-width: 0; }
@@ -198,6 +199,8 @@ body {
   padding: 10px 12px; background: var(--surface); color: var(--text);
   border: 1px solid var(--border); border-radius: 10px; font-size: 15px;
 }
+.date-row { display: flex; align-items: center; gap: 10px; }
+.date-row input { flex: 1; }
 .done-field { flex-direction: row; align-items: center; gap: 10px; }
 .done-field input { width: 20px; height: 20px; }
 
