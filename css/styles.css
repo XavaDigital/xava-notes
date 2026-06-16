@@ -100,6 +100,20 @@ body {
   background: var(--surface-2); color: var(--muted);
 }
 .badge.overdue { background: rgba(255,95,86,.15); color: var(--danger); }
+.badge.unsynced { background: rgba(255,193,7,.15); color: #ffc107; }
+
+.icon-btn.pending { color: #ffc107; position: relative; }
+.icon-btn.pending::after {
+  content: ''; position: absolute; top: 7px; right: 7px;
+  width: 7px; height: 7px; border-radius: 50%; background: #ffc107;
+}
+
+.mini-spin {
+  display: inline-block; width: 13px; height: 13px; margin-right: 7px;
+  vertical-align: -2px; border-radius: 50%;
+  border: 2px solid rgba(255,255,255,.35); border-top-color: var(--text);
+  animation: spin .6s linear infinite;
+}
 .tag {
   font-size: 12px; color: var(--accent);
   background: none; border: 1px solid transparent; cursor: pointer;

@@ -67,7 +67,7 @@ async function idbDelete(store, key) {
 export async function cachedNotes() {
   const rows = await idbAll('notes');
   return rows
-    .map((r) => r.note)
+    .map((r) => { r.note.unsynced = !!r.dirty || !r.note.fileId; return r.note; })
     .sort((a, b) => (b.updated || '').localeCompare(a.updated || ''));
 }
 
@@ -87,12 +87,26 @@ async function baseModifiedTime(fileId) {
   return row ? row.modifiedTime : null;
 }
 
-// Save a note (create or update). Optimistically updates the cache; writes to
-// Drive, queueing if offline.
+// Write a note's current content to Drive (create or update). Sets note.fileId
+// on first create. Throws on failure.
+async function writeNoteToDrive(note) {
+  const content = noteToMarkdown(note);
+  const name = noteFilename(note);
+  if (note.fileId) {
+    return drive.updateFile(note.fileId, name, content, appPropsFor(note));
+  }
+  const meta = await drive.createFile(name, content, appPropsFor(note));
+  note.fileId = meta.id;
+  return meta;
+}
+
+// Save a note (create or update). Optimistically updates the cache marked
+// "dirty"; on success the dirty flag is cleared, and on ANY failure (offline or
+// otherwise) the note simply stays dirty and is retried later by syncPending().
 //
 // `onConflict` is called when the file changed on Drive since we loaded it; it
 // should resolve to 'overwrite' | 'keepBoth' | 'cancel'. Returns
-// { status: 'saved' | 'cancelled', note }.
+// { status: 'saved' | 'pending' | 'cancelled', note }.
 export async function saveNote(note, { onConflict } = {}) {
   const base = await baseModifiedTime(note.fileId);
 
@@ -110,33 +124,41 @@ export async function saveNote(note, { onConflict } = {}) {
   }
 
   note.updated = new Date().toISOString();
-  const content = noteToMarkdown(note);
-  const name = noteFilename(note);
 
-  // Optimistic local cache update (keep the known base time until confirmed).
-  await idbPut('notes', { id: note.id, note, modifiedTime: base || note.updated });
+  // Optimistic local cache update, marked dirty until Drive confirms.
+  await idbPut('notes', { id: note.id, note, modifiedTime: base || note.updated, dirty: true });
 
   try {
-    let meta;
-    if (note.fileId) {
-      meta = await drive.updateFile(note.fileId, name, content, appPropsFor(note));
-    } else {
-      meta = await drive.createFile(name, content, appPropsFor(note));
-      note.fileId = meta.id;
-    }
-    await idbPut('notes', {
-      id: note.id,
-      note,
-      modifiedTime: meta.modifiedTime || note.updated,
-    });
+    const meta = await writeNoteToDrive(note);
+    await idbPut('notes', { id: note.id, note, modifiedTime: meta.modifiedTime || note.updated, dirty: false });
+    return { status: 'saved', note };
   } catch (err) {
-    if (isOffline(err)) {
-      await idbPut('queue', { kind: 'save', noteId: note.id });
-    } else {
-      throw err;
-    }
+    // Stays dirty; syncPending() will retry it later. Never lose the note.
+    console.warn('Xava Notes: save deferred, will retry —', err?.message || err);
+    return { status: 'pending', note };
   }
-  return { status: 'saved', note };
+}
+
+// How many cached notes are not yet confirmed on Drive.
+export async function countPending() {
+  const rows = await idbAll('notes');
+  return rows.filter((r) => r.dirty || !r.note.fileId).length;
+}
+
+// Retry writing every dirty note to Drive. Returns { synced, pending }.
+export async function syncPending() {
+  if (!navigator.onLine) return { synced: 0, pending: await countPending() };
+  const rows = await idbAll('notes');
+  let synced = 0;
+  for (const r of rows) {
+    if (!r.dirty) continue;
+    try {
+      const meta = await writeNoteToDrive(r.note);
+      await idbPut('notes', { id: r.note.id, note: r.note, modifiedTime: meta.modifiedTime || r.note.updated, dirty: false });
+      synced++;
+    } catch { /* still failing; keep dirty for the next attempt */ }
+  }
+  return { synced, pending: await countPending() };
 }
 
 // Soft delete: flag the note as deleted but keep the file on Drive.
@@ -180,6 +202,7 @@ export async function emptyTrash() {
 
 // Pull the latest from Drive, fetching content only for changed files.
 export async function refreshFromDrive() {
+  await syncPending(); // push any locally-saved-but-not-yet-on-Drive notes
   await flushQueue();
 
   const files = await drive.listFiles();
@@ -192,6 +215,7 @@ export async function refreshFromDrive() {
   for (const f of files) {
     seenFileIds.add(f.id);
     const existing = byFileId.get(f.id);
+    if (existing && existing.dirty) continue; // local has unsynced edits; don't clobber
     if (existing && existing.modifiedTime === f.modifiedTime) {
       continue; // unchanged
     }
@@ -221,13 +245,12 @@ export async function refreshFromDrive() {
 }
 
 async function flushQueue() {
+  // Deferred permanent deletes (purges that failed while offline). Saves are
+  // handled separately via the per-note dirty flag (syncPending).
   const queue = await idbAll('queue');
   for (const item of queue) {
     try {
-      if (item.kind === 'save') {
-        const row = (await idbAll('notes')).find((r) => r.id === item.noteId);
-        if (row) await saveNote(row.note);
-      } else if (item.kind === 'delete') {
+      if (item.kind === 'delete') {
         await drive.trashFile(item.fileId);
       }
       await idbDelete('queue', item.qid);

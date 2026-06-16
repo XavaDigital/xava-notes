@@ -118,6 +118,17 @@ async function refresh() {
   }
 }
 
+// Lightweight retry of just the unsynced notes (no full Drive re-list). Used on
+// app focus / coming online so notes that failed to save reach Drive.
+async function quickSync() {
+  if (!isSignedIn() || !navigator.onLine) return;
+  if (!state.notes.some((n) => n.unsynced)) return;
+  const res = await store.syncPending();
+  state.notes = await store.cachedNotes();
+  render();
+  if (res.synced) setStatus(`Synced ${res.synced} item${res.synced === 1 ? '' : 's'} to Drive`);
+}
+
 // --- Rendering ----------------------------------------------------------
 
 function matchesFilter(note) {
@@ -211,6 +222,13 @@ function render() {
 
   const sortBtn = $('#sortBtn');
   if (sortBtn) sortBtn.classList.toggle('active', state.sort === 'date');
+
+  const pending = state.notes.filter((n) => n.unsynced).length;
+  const syncBtn = $('#syncBtn');
+  if (syncBtn) {
+    syncBtn.classList.toggle('pending', pending > 0);
+    syncBtn.title = pending > 0 ? `${pending} not synced — tap to sync` : 'Sync now';
+  }
 
   const items = sortItems(state.notes.filter(passesFilters));
   const filtering = state.query || state.tags.length || state.notebook || state.filter !== 'all';
@@ -306,6 +324,7 @@ function renderCard(note) {
         <div class="card-title">${escapeHtml(note.title || notePreview(note) || 'Untitled')}</div>
         ${note.title && note.body ? `<div class="card-preview">${escapeHtml(notePreview(note))}</div>` : ''}
         <div class="card-meta">
+          ${note.unsynced ? '<span class="badge unsynced" title="Saved on this device — not yet on Drive">● Unsynced</span>' : ''}
           ${note.due ? `<span class="badge ${isOverdue(note) ? 'overdue' : ''}">${formatDue(note.due)}</span>` : ''}
           ${subTotal ? `<span class="badge">${subDone}/${subTotal} subtasks</span>` : ''}
           ${(note.attachments || []).length ? `<span class="badge">📎 ${note.attachments.length}</span>` : ''}
@@ -444,6 +463,18 @@ function selectTrash() {
   state.trash = true;
   state.notebook = '';
   closeDrawer();
+  render();
+}
+
+// Jump to the default "all notes" inbox view (used when importing).
+function goToInbox() {
+  state.notebook = '';
+  state.trash = false;
+  state.filter = 'all';
+  state.tags = [];
+  const search = $('#searchInput');
+  if (search) { search.value = ''; state.query = ''; }
+  $$('.chip').forEach((c) => c.classList.toggle('active', c.dataset.filter === 'all'));
   render();
 }
 
@@ -882,7 +913,7 @@ async function saveEditor() {
     // Refresh in-memory list from cache.
     state.notes = await store.cachedNotes();
     render();
-    setStatus('');
+    setStatus(res.status === 'pending' ? 'Saved on this device — will sync to Drive' : '', res.status === 'pending');
     closeEditor();
   } catch (err) {
     setStatus(`Save failed: ${err.message}`, true);
@@ -928,12 +959,18 @@ function closeEditor() {
 
 async function handleImportFiles(files) {
   if (!files.length) return;
+
+  // Jump to the inbox immediately so the progress counter is visible over the
+  // list (and close Settings/drawer if the import was launched from there).
+  if (overlay) closeOverlayByUser();
+  goToInbox();
+
   if (!isSignedIn()) {
     try { await getToken({ interactive: true }); }
     catch (e) { setStatus(`Connect Google Drive first: ${e.message}`, true); return; }
   }
 
-  setStatus('Reading files…', true);
+  setStatus('Reading files…', true, true);
   const { notes, errors } = await parseFiles(files);
 
   if (!notes.length) {
@@ -943,7 +980,7 @@ async function handleImportFiles(files) {
 
   let saved = 0;
   for (const note of notes) {
-    setStatus(`Importing ${saved + 1}/${notes.length}…`, true);
+    setStatus(`Importing ${saved + 1} of ${notes.length}…`, true, true);
     try {
       // Upload any embedded attachments (e.g. from Evernote) to Drive first.
       if (note.pendingAttachments?.length) {
@@ -972,7 +1009,6 @@ async function handleImportFiles(files) {
 
   state.notes = await store.cachedNotes();
   render();
-  if (overlay) closeOverlayByUser(); // close Settings if import was launched from there
   const extra = errors.length ? ` (${errors.length} skipped)` : '';
   setStatus(`Imported ${saved} item${saved === 1 ? '' : 's'}${extra}`, true);
   if (errors.length) console.warn('Xava Notes import issues:', errors);
@@ -1120,6 +1156,12 @@ function wireEvents() {
 
   window.addEventListener('online', refresh);
   window.addEventListener('offline', () => setStatus('Offline — changes will sync later', true));
+
+  // Retry unsynced notes when the app regains focus, and periodically.
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') quickSync();
+  });
+  setInterval(quickSync, 60000);
 }
 
 function wireDragDrop() {
@@ -1197,11 +1239,17 @@ function showDialog({ title, message, actions }) {
 }
 
 let statusTimer;
-function setStatus(msg, sticky = false) {
+function setStatus(msg, sticky = false, spin = false) {
   const el = $('#status');
   if (!el) return;
   if (!msg) { el.hidden = true; return; }
-  el.textContent = msg;
+  el.innerHTML = '';
+  if (spin) {
+    const s = document.createElement('span');
+    s.className = 'mini-spin';
+    el.appendChild(s);
+  }
+  el.appendChild(document.createTextNode(msg)); // text node = safe (no HTML injection)
   el.hidden = false;
   clearTimeout(statusTimer);
   if (!sticky) statusTimer = setTimeout(() => { el.hidden = true; }, 2500);
