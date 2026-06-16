@@ -330,8 +330,9 @@ function renderNotebookBar() {
 function openDrawer() {
   renderNotebookList();
   show('#drawer');
+  openOverlay(() => hide('#drawer'));
 }
-function closeDrawer() { hide('#drawer'); }
+function closeDrawer() { closeOverlayByUser(); }
 
 function renderNotebookList() {
   const el = $('#notebookList');
@@ -402,6 +403,7 @@ function openEditor(note) {
     ? `Edited ${formatWhen(note.updated)}`
     : 'New';
   show('#editor');
+  openOverlay(doCloseEditor);
   if (!note.title) $('#titleInput').focus();
 }
 
@@ -807,9 +809,13 @@ async function deleteEditor() {
   closeEditor();
 }
 
-function closeEditor() {
+function doCloseEditor() {
   hide('#editor');
   state.current = null;
+}
+function closeEditor() {
+  if (overlay) closeOverlayByUser();
+  else doCloseEditor();
 }
 
 // --- Import -------------------------------------------------------------
@@ -860,7 +866,7 @@ async function handleImportFiles(files) {
 
   state.notes = await store.cachedNotes();
   render();
-  hide('#settings');
+  if (overlay) closeOverlayByUser(); // close Settings if import was launched from there
   const extra = errors.length ? ` (${errors.length} skipped)` : '';
   setStatus(`Imported ${saved} item${saved === 1 ? '' : 's'}${extra}`, true);
   if (errors.length) console.warn('Xava Notes import issues:', errors);
@@ -872,6 +878,7 @@ function openSettings() {
   $('#clientIdInput').value = getClientId();
   reflectAuth();
   show('#settings');
+  openOverlay(() => hide('#settings'));
 }
 
 function reflectAuth() {
@@ -899,7 +906,7 @@ function wireEvents() {
     const name = createNotebook();
     if (name) selectNotebook(name);
   });
-  $('#openSettingsBtn').addEventListener('click', () => { closeDrawer(); openSettings(); });
+  $('#openSettingsBtn').addEventListener('click', () => { hide('#drawer'); openSettings(); });
   $('#newNotebookInline').addEventListener('click', () => {
     const name = createNotebook();
     if (!name) return;
@@ -985,7 +992,7 @@ function wireEvents() {
   });
 
   // Settings
-  $('#settingsBack').addEventListener('click', () => hide('#settings'));
+  $('#settingsBack').addEventListener('click', () => closeOverlayByUser());
   $('#saveClientId').addEventListener('click', async () => {
     setClientId($('#clientIdInput').value);
     setStatus('Client ID saved.');
@@ -1041,6 +1048,25 @@ const $$ = (sel) => Array.from(document.querySelectorAll(sel));
 
 function show(sel) { const el = $(sel); if (el) { el.hidden = false; document.body.style.overflow = 'hidden'; } }
 function hide(sel) { const el = $(sel); if (el) { el.hidden = true; document.body.style.overflow = ''; } }
+
+// --- Overlay history (Android back closes the open sheet) ---------------
+// Opening a sheet pushes a history entry; the back gesture pops it, which we
+// intercept to close the sheet instead of leaving the app.
+let overlay = null; // { close: fn }
+
+function openOverlay(closeFn) {
+  if (overlay) { overlay.close = closeFn; return; } // transition: reuse entry
+  overlay = { close: closeFn };
+  try { history.pushState({ xnOverlay: true }, ''); } catch {}
+}
+function closeOverlayByUser() {
+  if (overlay) history.back(); // -> popstate -> overlay.close()
+}
+window.addEventListener('popstate', () => {
+  const o = overlay;
+  overlay = null;
+  if (o) o.close();
+});
 
 let statusTimer;
 function setStatus(msg, sticky = false) {
