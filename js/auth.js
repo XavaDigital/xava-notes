@@ -1,15 +1,48 @@
 // Google authentication via Google Identity Services (GIS) token client.
 //
 // We use the OAuth 2.0 implicit token flow suitable for static, no-backend
-// sites. The access token lives in memory only; we silently re-request it when
-// it expires or when a Drive call returns 401.
+// sites. The access token is cached in localStorage (with its expiry) so a page
+// refresh reuses it instead of prompting again; once it expires we attempt a
+// silent re-request and only show the popup if Google needs re-consent.
 
 import { CONFIG, getClientId } from './config.js';
+
+const LS_TOKEN = 'xn.token';
 
 let tokenClient = null;
 let accessToken = null;
 let tokenExpiry = 0; // epoch ms
 let currentClientId = null;
+
+// --- Token persistence --------------------------------------------------
+
+function persistToken() {
+  try {
+    localStorage.setItem(
+      LS_TOKEN,
+      JSON.stringify({ accessToken, tokenExpiry, clientId: getClientId() })
+    );
+  } catch {}
+}
+
+function clearPersisted() {
+  try { localStorage.removeItem(LS_TOKEN); } catch {}
+}
+
+// Restore a still-valid token from a previous session (survives refresh).
+function hydrateToken() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(LS_TOKEN) || 'null');
+    if (!saved || !saved.accessToken) return;
+    // Ignore a token minted for a different client id.
+    if (saved.clientId && saved.clientId !== getClientId()) return;
+    if (Date.now() < (saved.tokenExpiry || 0) - 10_000) {
+      accessToken = saved.accessToken;
+      tokenExpiry = saved.tokenExpiry;
+    }
+  } catch {}
+}
+hydrateToken();
 
 const listeners = new Set();
 
@@ -75,10 +108,13 @@ function requestToken(interactive) {
         accessToken = resp.access_token;
         // expires_in is seconds; default ~3600.
         tokenExpiry = Date.now() + (Number(resp.expires_in || 3600) * 1000);
+        persistToken();
         emit();
         resolve(accessToken);
       };
-      client.requestAccessToken({ prompt: interactive ? 'consent' : '' });
+      // prompt '' reuses the existing grant silently when possible; Google
+      // still shows consent automatically on the very first authorization.
+      client.requestAccessToken({ prompt: '' });
     } catch (err) {
       reject(err);
     }
@@ -96,6 +132,7 @@ export function signOut() {
   }
   accessToken = null;
   tokenExpiry = 0;
+  clearPersisted();
   emit();
 }
 
