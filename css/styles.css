@@ -16,6 +16,9 @@
 }
 
 * { box-sizing: border-box; }
+/* Ensure the hidden attribute always wins over class rules that set display
+   (e.g. .tag-suggest/.tag-bar/.task-fields use display:flex). */
+[hidden] { display: none !important; }
 html, body { margin: 0; height: 100%; }
 body {
   background: var(--bg);
@@ -293,6 +296,14 @@ body {
   border: none; border-radius: 10px; font-size: 15px; font-weight: 600; cursor: pointer;
 }
 .primary-btn:active { background: var(--accent-2); }
+.primary-btn.loading { color: transparent; position: relative; pointer-events: none; }
+.primary-btn.loading::after {
+  content: ''; position: absolute; inset: 0; margin: auto;
+  width: 18px; height: 18px; border-radius: 50%;
+  border: 2px solid rgba(255,255,255,.45); border-top-color: #fff;
+  animation: spin .6s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
 .secondary-btn {
   padding: 10px 18px; background: var(--surface); color: var(--text);
   border: 1px solid var(--border); border-radius: 10px; font-size: 14px; cursor: pointer;

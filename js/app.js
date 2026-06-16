@@ -534,6 +534,9 @@ async function saveEditor() {
     closeEditor();
     return;
   }
+  const btn = $('#editorSave');
+  btn.classList.add('loading');
+  btn.disabled = true;
   setStatus('Saving…');
   try {
     await store.saveNote(n);
@@ -544,6 +547,9 @@ async function saveEditor() {
     closeEditor();
   } catch (err) {
     setStatus(`Save failed: ${err.message}`, true);
+  } finally {
+    btn.classList.remove('loading');
+    btn.disabled = false;
   }
 }
 

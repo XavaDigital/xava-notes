@@ -13,6 +13,7 @@ let tokenClient = null;
 let accessToken = null;
 let tokenExpiry = 0; // epoch ms
 let currentClientId = null;
+let refreshTimer = null;
 
 // --- Token persistence --------------------------------------------------
 
@@ -109,6 +110,7 @@ function requestToken(interactive) {
         // expires_in is seconds; default ~3600.
         tokenExpiry = Date.now() + (Number(resp.expires_in || 3600) * 1000);
         persistToken();
+        scheduleRefresh();
         emit();
         resolve(accessToken);
       };
@@ -118,6 +120,32 @@ function requestToken(interactive) {
     } catch (err) {
       reject(err);
     }
+  });
+}
+
+// Silently renew the token shortly before it expires so an open/returning
+// session never has to prompt again. Google caps access tokens at ~1h, so we
+// just keep refreshing them in the background while the Google session is alive.
+function scheduleRefresh() {
+  clearTimeout(refreshTimer);
+  if (!tokenExpiry) return;
+  const lead = 5 * 60 * 1000; // refresh 5 minutes before expiry
+  const delay = Math.max(15_000, tokenExpiry - Date.now() - lead);
+  refreshTimer = setTimeout(() => {
+    requestToken(false).catch(() => { /* retry on demand / next focus */ });
+  }, delay);
+}
+
+// Also top up the token when the app regains focus if it's close to expiring.
+if (typeof window !== 'undefined') {
+  const topUp = () => {
+    if (accessToken && Date.now() > tokenExpiry - 5 * 60 * 1000) {
+      requestToken(false).catch(() => {});
+    }
+  };
+  window.addEventListener('focus', topUp);
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') topUp();
   });
 }
 
@@ -132,6 +160,7 @@ export function signOut() {
   }
   accessToken = null;
   tokenExpiry = 0;
+  clearTimeout(refreshTimer);
   clearPersisted();
   emit();
 }
@@ -142,6 +171,7 @@ export function signOut() {
 export function invalidateToken() {
   accessToken = null;
   tokenExpiry = 0;
+  clearTimeout(refreshTimer);
   clearPersisted();
 }
 
