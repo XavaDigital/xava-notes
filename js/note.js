@@ -18,6 +18,7 @@ export function emptyNote(type = 'note') {
     title: '',
     type, // 'note' | 'task'
     body: '',
+    notebook: '', // optional notebook/list this item belongs to
     done: false,
     due: '', // YYYY-MM-DD
     tags: [],
@@ -37,6 +38,7 @@ export function noteToMarkdown(note) {
     updated: note.updated,
   };
   if (note.title) meta.title = note.title;
+  if (note.notebook) meta.notebook = note.notebook;
   // A date/due date applies to both notes and tasks.
   if (note.due) meta.due = note.due;
   if (note.type === 'task') {
@@ -73,6 +75,7 @@ export function noteFromMarkdown(text, fileId) {
     title: meta.title || titleFromBody || '',
     type: meta.type === 'task' ? 'task' : 'note',
     body: cleanBody.replace(/^\n+/, ''),
+    notebook: meta.notebook ? String(meta.notebook) : '',
     done: !!meta.done,
     due: meta.due || '',
     tags: Array.isArray(meta.tags) ? meta.tags.map(String) : [],

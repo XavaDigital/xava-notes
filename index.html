@@ -23,6 +23,9 @@
       <button id="syncBtn" class="icon-btn" title="Sync now" aria-label="Sync">&#8635;</button>
     </header>
 
+    <!-- Active notebook context bar -->
+    <div id="notebookBar" class="notebook-bar" hidden></div>
+
     <!-- Filter chips -->
     <nav id="filters" class="filters">
       <button class="chip active" data-filter="all">All</button>
@@ -44,6 +47,22 @@
 
     <!-- Floating capture button -->
     <button id="fab" class="fab" title="New note" aria-label="New note">+</button>
+  </div>
+
+  <!-- Notebooks drawer -->
+  <div id="drawer" class="drawer" hidden>
+    <div class="drawer-scrim" id="drawerScrim"></div>
+    <aside class="drawer-panel">
+      <div class="drawer-head">
+        <h2>Notebooks</h2>
+        <button id="drawerClose" class="icon-btn" aria-label="Close">&times;</button>
+      </div>
+      <nav id="notebookList" class="notebook-list"></nav>
+      <button id="newNotebook" class="text-btn drawer-new">+ New notebook</button>
+      <div class="drawer-foot">
+        <button id="openSettingsBtn" class="secondary-btn">Settings</button>
+      </div>
+    </aside>
   </div>
 
   <!-- Editor sheet -->
@@ -75,6 +94,14 @@
                 placeholder="Type or tap the mic on your keyboard to dictate&hellip;"
                 autocapitalize="sentences"></textarea>
       <div id="bodyPreview" class="body-input body-preview md" hidden></div>
+
+      <label class="field">
+        <span>Notebook</span>
+        <div class="date-row">
+          <select id="notebookSelect"></select>
+          <button id="newNotebookInline" class="text-btn" type="button">New</button>
+        </div>
+      </label>
 
       <label class="field">
         <span>Date / due date</span>

@@ -171,6 +171,49 @@ body {
   padding: 8px 16px; font-size: 14px; max-width: 90vw;
 }
 
+/* Notebooks drawer */
+.drawer { position: fixed; inset: 0; z-index: 25; }
+.drawer-scrim { position: absolute; inset: 0; background: rgba(0,0,0,.5); }
+.drawer-panel {
+  position: absolute; top: 0; left: 0; bottom: 0; width: min(82vw, 320px);
+  background: var(--bg-2); border-right: 1px solid var(--border);
+  display: flex; flex-direction: column;
+  padding: calc(10px + var(--safe-top)) 12px calc(16px + var(--safe-bottom));
+  animation: slidein .18s ease;
+}
+@keyframes slidein { from { transform: translateX(-14px); opacity: .5; } to { transform: none; opacity: 1; } }
+.drawer-head { display: flex; align-items: center; justify-content: space-between; }
+.drawer-head h2 { font-size: 18px; margin: 0; }
+.notebook-list { display: flex; flex-direction: column; gap: 4px; margin-top: 12px; overflow-y: auto; flex: 1; }
+.notebook-item {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  background: transparent; border: none; color: var(--text);
+  border-radius: 10px; padding: 11px 12px; font-size: 15px; cursor: pointer; text-align: left;
+}
+.notebook-item:hover { background: var(--surface); }
+.notebook-item.active { background: var(--accent); color: #fff; }
+.nb-count { font-size: 12px; color: var(--muted); }
+.notebook-item.active .nb-count { color: rgba(255,255,255,.85); }
+.drawer-new { align-self: flex-start; margin: 8px 4px; }
+.drawer-foot { border-top: 1px solid var(--border); padding-top: 12px; }
+
+/* Notebook context bar */
+.notebook-bar { padding: 0 12px 10px; background: var(--bg-2); border-bottom: 1px solid var(--border); }
+.notebook-pill {
+  display: inline-flex; align-items: center; gap: 6px;
+  background: var(--surface-2); color: var(--text); border: 1px solid var(--border);
+  border-radius: 999px; padding: 5px 6px 5px 12px; font-size: 14px;
+}
+.notebook-pill strong { color: var(--accent); }
+.nb-ico { font-size: 14px; }
+.notebook-pill .chip-x { background: none; border: none; color: var(--muted); cursor: pointer; font-size: 16px; line-height: 1; padding: 0 4px; }
+.notebook-pill .chip-x:hover { color: var(--danger); }
+
+#notebookSelect {
+  flex: 1; padding: 10px 12px; background: var(--surface); color: var(--text);
+  border: 1px solid var(--border); border-radius: 10px; font-size: 15px;
+}
+
 /* Drag & drop import overlay */
 .drop-zone {
   position: fixed; inset: 0; z-index: 50;

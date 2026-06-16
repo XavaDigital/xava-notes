@@ -15,9 +15,42 @@ const state = {
   filter: 'all',
   query: '',
   tags: [], // active tag filters (from tapping cards or the tag bar) — ANDed
+  notebook: '', // active notebook/list view ('' = all notebooks)
   sort: 'date', // 'date' = by due date (overdue first), 'recent' = by last edited
   current: null, // note being edited
 };
+
+// --- Notebooks ----------------------------------------------------------
+
+const LS_NOTEBOOKS = 'xn.notebooks';
+
+function registeredNotebooks() {
+  try { return JSON.parse(localStorage.getItem(LS_NOTEBOOKS) || '[]'); }
+  catch { return []; }
+}
+function registerNotebook(name) {
+  const list = registeredNotebooks();
+  if (name && !list.some((n) => n.toLowerCase() === name.toLowerCase())) {
+    list.push(name);
+    localStorage.setItem(LS_NOTEBOOKS, JSON.stringify(list));
+  }
+}
+
+// All notebooks (from notes + any registered empty ones), with item counts.
+function allNotebooks() {
+  const counts = new Map();
+  for (const n of state.notes) {
+    const nb = n.notebook;
+    if (!nb) continue;
+    const e = counts.get(nb.toLowerCase()) || { name: nb, count: 0 };
+    e.count++;
+    counts.set(nb.toLowerCase(), e);
+  }
+  for (const nb of registeredNotebooks()) {
+    if (!counts.has(nb.toLowerCase())) counts.set(nb.toLowerCase(), { name: nb, count: 0 });
+  }
+  return [...counts.values()].sort((a, b) => a.name.localeCompare(b.name));
+}
 
 // --- Boot ---------------------------------------------------------------
 
@@ -120,6 +153,7 @@ function activeTagFilters() {
 }
 
 function passesFilters(note) {
+  if (state.notebook && (note.notebook || '').toLowerCase() !== state.notebook.toLowerCase()) return false;
   if (!matchesFilter(note)) return false;
   for (const t of activeTagFilters()) {
     if (!noteHasTag(note, t)) return false;
@@ -162,6 +196,7 @@ function sectionHeader(label, extraClass = '') {
 
 function render() {
   try { renderTagBar(); } catch (e) { console.warn('Xava Notes: tag bar render failed', e); }
+  try { renderNotebookBar(); } catch (e) { console.warn('Xava Notes: notebook bar failed', e); }
   const list = $('#list');
   if (!list) return;
 
@@ -169,7 +204,7 @@ function render() {
   if (sortBtn) sortBtn.classList.toggle('active', state.sort === 'date');
 
   const items = sortItems(state.notes.filter(passesFilters));
-  const filtering = state.query || state.tags.length || state.filter !== 'all';
+  const filtering = state.query || state.tags.length || state.notebook || state.filter !== 'all';
 
   if (items.length === 0) {
     list.innerHTML = `<div class="empty">
@@ -278,13 +313,83 @@ function renderCard(note) {
   return card;
 }
 
+// --- Notebooks view -----------------------------------------------------
+
+function renderNotebookBar() {
+  const bar = $('#notebookBar');
+  if (!bar) return;
+  if (!state.notebook) { bar.hidden = true; bar.innerHTML = ''; return; }
+  bar.hidden = false;
+  bar.innerHTML =
+    `<span class="notebook-pill"><span class="nb-ico">&#128214;</span>` +
+    `<strong>${escapeHtml(state.notebook)}</strong>` +
+    `<button class="chip-x" aria-label="Leave notebook">&times;</button></span>`;
+  bar.querySelector('.chip-x').addEventListener('click', () => selectNotebook(''));
+}
+
+function openDrawer() {
+  renderNotebookList();
+  show('#drawer');
+}
+function closeDrawer() { hide('#drawer'); }
+
+function renderNotebookList() {
+  const el = $('#notebookList');
+  if (!el) return;
+  const books = allNotebooks();
+  const total = state.notes.length;
+  let html =
+    `<button class="notebook-item ${!state.notebook ? 'active' : ''}" data-nb="">` +
+    `<span>All notes</span><span class="nb-count">${total}</span></button>`;
+  for (const b of books) {
+    const active = state.notebook && state.notebook.toLowerCase() === b.name.toLowerCase();
+    html +=
+      `<button class="notebook-item ${active ? 'active' : ''}" data-nb="${escapeAttr(b.name)}">` +
+      `<span>${escapeHtml(b.name)}</span><span class="nb-count">${b.count}</span></button>`;
+  }
+  el.innerHTML = html;
+  el.querySelectorAll('.notebook-item').forEach((btn) => {
+    btn.addEventListener('click', () => selectNotebook(btn.dataset.nb));
+  });
+}
+
+function selectNotebook(name) {
+  state.notebook = name || '';
+  closeDrawer();
+  render();
+}
+
+function createNotebook() {
+  const name = (prompt('New notebook name') || '').trim();
+  if (!name) return name;
+  registerNotebook(name);
+  return name;
+}
+
 // --- Editor -------------------------------------------------------------
+
+function renderNotebookSelect(note) {
+  const sel = $('#notebookSelect');
+  if (!sel) return;
+  const names = allNotebooks().map((b) => b.name);
+  // Include the note's own notebook even if not yet in the list.
+  if (note.notebook && !names.some((n) => n.toLowerCase() === note.notebook.toLowerCase())) {
+    names.push(note.notebook);
+  }
+  let html = '<option value="">No notebook</option>';
+  for (const n of names) {
+    const selected = note.notebook && note.notebook.toLowerCase() === n.toLowerCase();
+    html += `<option value="${escapeAttr(n)}" ${selected ? 'selected' : ''}>${escapeHtml(n)}</option>`;
+  }
+  sel.innerHTML = html;
+}
 
 function openEditor(note) {
   state.current = note;
   $('#titleInput').value = note.title || '';
   $('#bodyInput').value = note.body || '';
   setPreview(false); // always open in edit mode
+  renderNotebookSelect(note);
   $('#dueInput').value = note.due || '';
   $('#doneInput').checked = !!note.done;
   note.tags = note.tags || [];
@@ -589,6 +694,7 @@ function collectEditor() {
   const n = state.current;
   n.title = $('#titleInput').value.trim();
   n.body = $('#bodyInput').value;
+  n.notebook = $('#notebookSelect').value || '';
   n.due = $('#dueInput').value;
   n.done = $('#doneInput').checked;
   // n.tags is maintained live by the tag picker.
@@ -689,8 +795,27 @@ function reflectAuth() {
 // --- Events -------------------------------------------------------------
 
 function wireEvents() {
-  $('#fab').addEventListener('click', () => openEditor(emptyNote('note')));
-  $('#menuBtn').addEventListener('click', openSettings);
+  $('#fab').addEventListener('click', () => {
+    const n = emptyNote('note');
+    if (state.notebook) n.notebook = state.notebook; // auto-assign current notebook
+    openEditor(n);
+  });
+  $('#menuBtn').addEventListener('click', openDrawer);
+
+  // Notebooks drawer
+  $('#drawerClose').addEventListener('click', closeDrawer);
+  $('#drawerScrim').addEventListener('click', closeDrawer);
+  $('#newNotebook').addEventListener('click', () => {
+    const name = createNotebook();
+    if (name) selectNotebook(name);
+  });
+  $('#openSettingsBtn').addEventListener('click', () => { closeDrawer(); openSettings(); });
+  $('#newNotebookInline').addEventListener('click', () => {
+    const name = createNotebook();
+    if (!name) return;
+    const note = state.current;
+    if (note) { note.notebook = name; renderNotebookSelect(note); }
+  });
   $('#syncBtn').addEventListener('click', refresh);
   $('#sortBtn').addEventListener('click', () => {
     state.sort = state.sort === 'date' ? 'recent' : 'date';

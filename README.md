@@ -12,6 +12,7 @@ the app talks to Drive directly from your browser.
 
 - 📝 Quick capture of **notes** and **tasks** from any device
 - 🎙️ Voice-friendly: plain text fields work with any OS dictation
+- 📓 **Notebooks** (lists/projects): jump into a notebook view; new items are auto-filed there
 - ✅ Tasks with **completion**, **subtasks**, **due dates**, and **tags**
 - 📎 **Image & file attachments** — stored in a `XavaNotes/attachments` subfolder in your Drive; images preview as thumbnails
 - 📥 **Import** from Evernote (`.enex`) and Todoist (`.csv`) by drag & drop (or Settings → Import)
