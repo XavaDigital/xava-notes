@@ -89,6 +89,30 @@ async function boot() {
   } else if (!getClientId()) {
     openSettings();
   }
+
+  // If launched via the Android share sheet, open a pre-filled new note.
+  handleShareTarget();
+}
+
+// Web Share Target: the manifest registers the app to receive shared
+// title/text/url as query params; turn them into a new note.
+function handleShareTarget() {
+  const p = new URLSearchParams(location.search);
+  const title = p.get('title') || '';
+  const text = p.get('text') || '';
+  const url = p.get('url') || '';
+  if (!title && !text && !url) return;
+
+  // Clean the URL so a refresh doesn't reopen the shared note.
+  history.replaceState({}, '', location.pathname);
+
+  const n = emptyNote('note');
+  n.title = title;
+  let body = text;
+  if (url && url !== text) body += (body ? '\n\n' : '') + url;
+  n.body = body;
+  if (state.notebook) n.notebook = state.notebook;
+  openEditor(n);
 }
 
 onAuthChange(async (signed) => {

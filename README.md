@@ -19,6 +19,7 @@ the app talks to Drive directly from your browser.
 - ✍️ **Markdown formatting** toolbar: headings, bold/italic/strikethrough, highlight, lists, checkboxes, quote, code, links, divider — with live preview
 - 🔍 Instant search across titles, bodies, tags, and subtasks
 - 📲 Installable **PWA** (add to home screen on Android; runs in any browser on Windows)
+- 🔗 **Android share target**: share a link or text from any app to create a note (installed PWA)
 - ⚡ Offline-capable: notes are cached locally and synced to Drive when online
 - 🔒 Least-privilege: uses the Drive `drive.file` scope, so the app can only
   see files **it** creates — never the rest of your Drive
