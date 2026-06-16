@@ -17,7 +17,8 @@ export async function parseFiles(files) {
     try {
       const text = await file.text();
       const name = (file.name || '').toLowerCase();
-      if (name.endsWith('.enex')) notes.push(...parseEnex(text));
+      // Evernote exports per-notebook, so use the .enex file name as the notebook.
+      if (name.endsWith('.enex')) notes.push(...parseEnex(text, baseName(file.name)));
       // A Todoist CSV is exported per-project; use the file name as the notebook.
       else if (name.endsWith('.csv')) notes.push(...parseTodoistCsv(text, baseName(file.name)));
       else if (name.endsWith('.md') || name.endsWith('.txt') || name.endsWith('.markdown')) {
@@ -59,7 +60,7 @@ export function parseMarkdownFile(filename, text) {
 
 // --- Evernote .enex -----------------------------------------------------
 
-function parseEnex(xml) {
+function parseEnex(xml, notebook = '') {
   if (typeof DOMParser === 'undefined') throw new Error('Import needs a browser');
   const doc = new DOMParser().parseFromString(xml, 'application/xml');
   const out = [];
@@ -76,6 +77,7 @@ function parseEnex(xml) {
     n.title = title || 'Imported note';
     n.body = enmlToMarkdown(content);
     n.tags = tags;
+    if (notebook) n.notebook = notebook;
     if (created) n.created = created;
     if (updated) n.updated = updated;
 

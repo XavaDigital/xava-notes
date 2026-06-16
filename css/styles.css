@@ -185,6 +185,36 @@ body {
   padding: 8px 16px; font-size: 14px; max-width: 90vw;
 }
 
+/* Notebook chip on cards */
+.nb-chip {
+  font-size: 12px; color: var(--muted); font-family: inherit; cursor: pointer;
+  background: var(--surface-2); border: 1px solid var(--border);
+  border-radius: 999px; padding: 1px 9px;
+}
+.nb-chip:hover { border-color: var(--accent); color: var(--accent); }
+
+/* Persistent desktop sidebar */
+.sidebar { display: none; }
+.sidebar-head {
+  font-size: 12px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase;
+  color: var(--muted); padding: 4px 12px 10px;
+}
+.sidebar-foot { border-top: 1px solid var(--border); padding-top: 12px; margin-top: 8px; }
+.card.dragging { opacity: .45; }
+.notebook-item.drop-hover { outline: 2px dashed var(--accent); outline-offset: -2px; background: var(--surface); }
+
+@media (min-width: 860px) {
+  .sidebar {
+    display: flex; flex-direction: column;
+    position: fixed; top: 0; left: 0; bottom: 0; width: 250px; z-index: 6;
+    background: var(--bg-2); border-right: 1px solid var(--border);
+    padding: calc(14px + var(--safe-top)) 8px calc(14px + var(--safe-bottom));
+    overflow-y: auto;
+  }
+  #app { margin-left: 250px; }
+  #menuBtn { display: none; }
+}
+
 /* Notebooks drawer */
 .drawer { position: fixed; inset: 0; z-index: 25; }
 .drawer-scrim { position: absolute; inset: 0; background: rgba(0,0,0,.5); }

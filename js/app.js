@@ -21,6 +21,8 @@ const state = {
   current: null, // note being edited
 };
 
+let draggingNoteId = null; // id of the card being dragged onto a notebook
+
 // --- Notebooks ----------------------------------------------------------
 
 const LS_NOTEBOOKS = 'xn.notebooks';
@@ -241,6 +243,7 @@ function sectionHeader(label, extraClass = '') {
 function render() {
   try { renderTagBar(); } catch (e) { console.warn('Xava Notes: tag bar render failed', e); }
   try { renderNotebookBar(); } catch (e) { console.warn('Xava Notes: notebook bar failed', e); }
+  try { renderNotebooksUI(); } catch (e) { console.warn('Xava Notes: notebooks UI failed', e); }
   const list = $('#list');
   if (!list) return;
 
@@ -349,6 +352,7 @@ function renderCard(note) {
         ${note.title && note.body ? `<div class="card-preview">${escapeHtml(notePreview(note))}</div>` : ''}
         <div class="card-meta">
           ${note.unsynced ? '<span class="badge unsynced" title="Saved on this device — not yet on Drive">● Unsynced</span>' : ''}
+          ${note.notebook ? `<button class="nb-chip" data-nb="${escapeAttr(note.notebook)}">&#128214; ${escapeHtml(note.notebook)}</button>` : ''}
           ${note.due ? `<span class="badge ${isOverdue(note) ? 'overdue' : ''}">${formatDue(note.due)}</span>` : ''}
           ${subTotal ? `<span class="badge">${subDone}/${subTotal} subtasks</span>` : ''}
           ${(note.attachments || []).length ? `<span class="badge">📎 ${note.attachments.length}</span>` : ''}
@@ -373,6 +377,19 @@ function renderCard(note) {
       toggleTagFilter(btn.dataset.tag);
     });
   });
+  const nbChip = card.querySelector('.nb-chip');
+  if (nbChip) nbChip.addEventListener('click', (e) => { e.stopPropagation(); selectNotebook(nbChip.dataset.nb); });
+
+  // Drag the card onto a notebook (desktop) to file it there.
+  card.draggable = true;
+  card.addEventListener('dragstart', (e) => {
+    draggingNoteId = note.id;
+    e.dataTransfer.setData('text/plain', note.id);
+    e.dataTransfer.effectAllowed = 'move';
+    card.classList.add('dragging');
+  });
+  card.addEventListener('dragend', () => { draggingNoteId = null; card.classList.remove('dragging'); });
+
   card.querySelector('.card-text').addEventListener('click', () => {
     if (state.trash) trashItemFlow(note);
     else openEditor(note);
@@ -442,15 +459,13 @@ function renderNotebookBar() {
 }
 
 function openDrawer() {
-  renderNotebookList();
+  renderNotebooksUI();
   show('#drawer');
   openOverlay(() => hide('#drawer'));
 }
 function closeDrawer() { closeOverlayByUser(); }
 
-function renderNotebookList() {
-  const el = $('#notebookList');
-  if (!el) return;
+function notebookListHTML() {
   const books = allNotebooks();
   const total = state.notes.filter((n) => !n.deleted).length;
   const trashCount = state.notes.filter((n) => n.deleted).length;
@@ -467,13 +482,51 @@ function renderNotebookList() {
   html +=
     `<button class="notebook-item trash ${state.trash ? 'active' : ''}" data-trash="1">` +
     `<span>&#128465; Trash</span><span class="nb-count">${trashCount}</span></button>`;
-  el.innerHTML = html;
-  el.querySelectorAll('.notebook-item').forEach((btn) => {
-    btn.addEventListener('click', () => {
-      if (btn.dataset.trash) selectTrash();
-      else selectNotebook(btn.dataset.nb);
+  return html;
+}
+
+// Render the notebook list into both the drawer (mobile) and the sidebar
+// (desktop), wiring click-to-filter and drag-and-drop-to-file.
+function renderNotebooksUI() {
+  ['#notebookList', '#sidebarList'].forEach((sel) => {
+    const el = $(sel);
+    if (!el) return;
+    el.innerHTML = notebookListHTML();
+    el.querySelectorAll('.notebook-item').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        if (btn.dataset.trash) selectTrash();
+        else selectNotebook(btn.dataset.nb);
+      });
+      // Drop a dragged card here to file it (or trash it).
+      btn.addEventListener('dragover', (e) => {
+        if (!draggingNoteId) return;
+        e.preventDefault();
+        btn.classList.add('drop-hover');
+      });
+      btn.addEventListener('dragleave', () => btn.classList.remove('drop-hover'));
+      btn.addEventListener('drop', (e) => {
+        e.preventDefault();
+        btn.classList.remove('drop-hover');
+        const id = (e.dataTransfer && e.dataTransfer.getData('text/plain')) || draggingNoteId;
+        dropNoteOnTarget(id, btn);
+      });
     });
   });
+}
+
+async function dropNoteOnTarget(noteId, btn) {
+  const note = state.notes.find((n) => n.id === noteId);
+  if (!note) return;
+  if (btn.dataset.trash) {
+    await store.softDeleteNote(note);
+    setStatus('Moved to Trash');
+  } else {
+    note.notebook = btn.dataset.nb || '';
+    await store.saveNote(note);
+    setStatus(note.notebook ? `Filed in ${note.notebook}` : 'Removed from notebook');
+  }
+  state.notes = await store.cachedNotes();
+  render();
 }
 
 function selectNotebook(name) {
@@ -1072,6 +1125,11 @@ function wireEvents() {
     const name = createNotebook();
     if (name) selectNotebook(name);
   });
+  $('#sidebarNewNotebook').addEventListener('click', () => {
+    const name = createNotebook();
+    if (name) selectNotebook(name);
+  });
+  $('#sidebarSettings').addEventListener('click', openSettings);
   $('#openSettingsBtn').addEventListener('click', () => { hide('#drawer'); openSettings(); });
   $('#newNotebookInline').addEventListener('click', () => {
     const name = createNotebook();
