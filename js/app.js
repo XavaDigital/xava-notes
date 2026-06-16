@@ -1163,8 +1163,16 @@ async function handleImportFiles(files) {
     return;
   }
 
+  // Skip duplicates: anything matching an existing note (or an earlier one in
+  // this batch) by title + body is not re-imported.
+  const seen = new Set(state.notes.map(importKey));
+
   let saved = 0;
+  let dupes = 0;
   for (const note of notes) {
+    const key = importKey(note);
+    if (seen.has(key)) { dupes++; continue; }
+    seen.add(key);
     setStatus(`Importing ${saved + 1} of ${notes.length}…`, true, true);
     try {
       // Upload any embedded attachments (e.g. from Evernote) to Drive first.
@@ -1194,9 +1202,18 @@ async function handleImportFiles(files) {
 
   state.notes = await store.cachedNotes();
   render();
-  const extra = errors.length ? ` (${errors.length} skipped)` : '';
-  setStatus(`Imported ${saved} item${saved === 1 ? '' : 's'}${extra}`, true);
+  const parts = [`Imported ${saved} item${saved === 1 ? '' : 's'}`];
+  if (dupes) parts.push(`${dupes} duplicate${dupes === 1 ? '' : 's'} skipped`);
+  if (errors.length) parts.push(`${errors.length} error${errors.length === 1 ? '' : 's'}`);
+  setStatus(parts.join(' · '), true);
   if (errors.length) console.warn('Xava Notes import issues:', errors);
+}
+
+// Identity used to detect duplicate imports: title + normalized body.
+function importKey(note) {
+  const title = (note.title || '').trim().toLowerCase();
+  const body = (note.body || '').replace(/\s+/g, ' ').trim().toLowerCase();
+  return title + '' + body;
 }
 
 // --- Settings -----------------------------------------------------------
