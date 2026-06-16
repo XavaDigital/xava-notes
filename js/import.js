@@ -6,7 +6,7 @@
 // Each importer returns note objects in the app's shape (see note.js). Saving
 // them to Drive is the caller's job.
 
-import { emptyNote } from './note.js';
+import { emptyNote, noteFromMarkdown, newId } from './note.js';
 
 // --- Public entry -------------------------------------------------------
 
@@ -21,7 +21,7 @@ export async function parseFiles(files) {
       // A Todoist CSV is exported per-project; use the file name as the notebook.
       else if (name.endsWith('.csv')) notes.push(...parseTodoistCsv(text, baseName(file.name)));
       else if (name.endsWith('.md') || name.endsWith('.txt') || name.endsWith('.markdown')) {
-        notes.push(parsePlain(file.name, text));
+        notes.push(parseMarkdownFile(file.name, text));
       } else {
         errors.push(`${file.name}: unsupported file type`);
       }
@@ -34,7 +34,23 @@ export async function parseFiles(files) {
 
 // --- Plain text / Markdown ---------------------------------------------
 
-function parsePlain(filename, text) {
+// Looks like one of *our* exported notes (YAML frontmatter with id/type)?
+function isXavaNote(text) {
+  return /^---\s*\n[\s\S]*?\n(?:type|id):/.test(text) || /^---\s*\n[\s\S]*?\n---/.test(text);
+}
+
+export function parseMarkdownFile(filename, text) {
+  // Re-importing our own files (e.g. migrating to new credentials): parse the
+  // full structure so tags, dates, notebooks and subtasks survive. Give it a
+  // fresh identity so it's created as a new file under the current app, and
+  // drop attachment refs (those Drive ids belong to the previous app).
+  if (isXavaNote(text)) {
+    const n = noteFromMarkdown(text, null);
+    n.id = newId();
+    n.fileId = null;
+    n.attachments = [];
+    return n;
+  }
   const n = emptyNote('note');
   n.title = (filename || 'Imported note').replace(/\.[^.]+$/, '');
   n.body = text.replace(/^#\s+.*\n+/, ''); // drop a leading H1 (becomes title)
