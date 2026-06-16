@@ -19,6 +19,7 @@ const state = {
   trash: false, // viewing the Trash (soft-deleted items)
   sort: 'date', // 'date' = by due date (overdue first), 'recent' = by last edited
   current: null, // note being edited
+  editing: false, // editor is in edit (vs read-only) mode
   selectMode: false, // bulk multi-select
   selected: new Set(), // selected note ids
 };
@@ -688,7 +689,7 @@ function renderNotebookSelect(note) {
   sel.innerHTML = html;
 }
 
-function openEditor(note) {
+function openEditor(note, { edit = false } = {}) {
   state.current = note;
   $('#titleInput').value = note.title || '';
   $('#bodyEditor').innerHTML = mdToHtml(note.body || '');
@@ -705,9 +706,26 @@ function openEditor(note) {
   $('#editorMeta').textContent = note.fileId
     ? `Edited ${formatWhen(note.updated)}`
     : 'New';
+  // New notes open editable; existing notes open read-only to avoid accidental
+  // edits, with an Edit button to switch.
+  setEditing(edit || !note.fileId);
   show('#editor');
   openOverlay(doCloseEditor);
-  if (!note.title) $('#titleInput').focus();
+  if (state.editing && !note.title) $('#titleInput').focus();
+}
+
+// Toggle the editor between read-only and editable.
+function setEditing(on) {
+  state.editing = on;
+  const sheet = $('#editor');
+  if (sheet) sheet.classList.toggle('readonly', !on);
+  const ed = $('#bodyEditor');
+  if (!on) setMdMode(false); // always show the styled view when read-only
+  if (ed) ed.contentEditable = on ? 'true' : 'false';
+  const ti = $('#titleInput'); if (ti) ti.readOnly = !on;
+  const nb = $('#notebookSelect'); if (nb) nb.disabled = !on;
+  const du = $('#dueInput'); if (du) du.disabled = !on;
+  const dn = $('#doneInput'); if (dn) dn.disabled = !on;
 }
 
 function setType(type) {
@@ -1293,6 +1311,7 @@ function wireEvents() {
 
   // Editor
   $('#editorBack').addEventListener('click', closeEditor);
+  $('#editorEdit').addEventListener('click', () => { setEditing(true); $('#bodyEditor').focus(); });
   $('#editorSave').addEventListener('click', saveEditor);
   $('#editorDelete').addEventListener('click', deleteEditor);
   $('#typeNote').addEventListener('click', () => setType('note'));
@@ -1313,6 +1332,7 @@ function wireEvents() {
   $('#mdToggle').addEventListener('click', () => setMdMode(!inMdMode()));
   // Toggle checklist checkboxes in the styled editor.
   $('#bodyEditor').addEventListener('click', (e) => {
+    if (!state.editing) return; // read-only: don't toggle checkboxes
     const cb = e.target.closest('.md-cb');
     if (cb) cb.classList.toggle('on');
   });

@@ -502,7 +502,26 @@ body {
 .tag-opt:hover { background: var(--surface); }
 .tag-opt.create { color: var(--accent); }
 
-.sheet-foot { display: flex; align-items: center; justify-content: space-between; margin-top: 4px; }
+.sheet-foot { display: flex; align-items: center; justify-content: space-between; margin-top: 4px; gap: 8px; }
+
+/* Read-only editor: hide all editing affordances, show Edit instead of Save */
+.sheet:not(.readonly) #editorEdit { display: none; }
+.sheet.readonly #editorSave { display: none; }
+.sheet.readonly .format-bar,
+.sheet.readonly #mdToggle,
+.sheet.readonly #addSubtask,
+.sheet.readonly #attachBtn,
+.sheet.readonly #newNotebookInline,
+.sheet.readonly #clearDue,
+.sheet.readonly .type-toggle,
+.sheet.readonly .tag-input,
+.sheet.readonly .tag-chip .chip-x,
+.sheet.readonly .subtask-list .remove,
+.sheet.readonly .attachment .remove { display: none; }
+.sheet.readonly .subtask-list input,
+.sheet.readonly #titleInput,
+.sheet.readonly .tag-picker { pointer-events: none; }
+.sheet.readonly .tag-picker { border-color: transparent; padding-left: 0; }
 .editor-meta { color: var(--muted); font-size: 13px; }
 
 .primary-btn {
