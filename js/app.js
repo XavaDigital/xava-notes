@@ -68,7 +68,15 @@ async function refresh() {
     render();
     setStatus('');
   } catch (err) {
-    setStatus(navigator.onLine ? `Sync error: ${err.message}` : 'Offline — showing cached notes', true);
+    if (!navigator.onLine) {
+      setStatus('Offline — showing cached notes', true);
+    } else if (/^AUTH:|\b401\b|invalid authentication/i.test(err.message)) {
+      reflectAuth();
+      setStatus('Session expired — reconnect Google Drive', true);
+      openSettings();
+    } else {
+      setStatus(`Sync error: ${err.message}`, true);
+    }
   }
 }
 

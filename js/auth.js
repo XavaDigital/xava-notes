@@ -136,6 +136,15 @@ export function signOut() {
   emit();
 }
 
+// Drop the current token without signing out the UI. Used when the server
+// rejects the token (401) even though our local expiry said it was still valid,
+// so the next getToken() fetches a genuinely fresh one instead of reusing it.
+export function invalidateToken() {
+  accessToken = null;
+  tokenExpiry = 0;
+  clearPersisted();
+}
+
 // Return a valid token, refreshing silently if possible.
 export async function getToken({ interactive = false } = {}) {
   if (isSignedIn()) return accessToken;

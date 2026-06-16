@@ -5,7 +5,7 @@
 // data.
 
 import { CONFIG } from './config.js';
-import { getToken } from './auth.js';
+import { getToken, invalidateToken } from './auth.js';
 
 const FILES = 'https://www.googleapis.com/drive/v3/files';
 const UPLOAD = 'https://www.googleapis.com/upload/drive/v3/files';
@@ -21,12 +21,18 @@ async function authFetch(url, options = {}, retry = true) {
     },
   });
   if (res.status === 401 && retry) {
-    // Token expired mid-flight; force an interactive refresh once.
+    // The server rejected the token even if our local expiry said it was fine.
+    // Drop it and fetch a genuinely fresh one, then retry once.
+    invalidateToken();
     await getToken({ interactive: true });
     return authFetch(url, options, false);
   }
   if (!res.ok) {
     const text = await res.text().catch(() => '');
+    if (res.status === 401) {
+      invalidateToken();
+      throw new Error('AUTH: Google session expired — please reconnect.');
+    }
     throw new Error(`Drive ${res.status}: ${text.slice(0, 200)}`);
   }
   return res;
