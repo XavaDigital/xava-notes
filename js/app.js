@@ -20,12 +20,23 @@ const state = {
 
 async function boot() {
   registerServiceWorker();
-  wireEvents();
-  reflectAuth();
 
-  // Show cached notes instantly.
-  state.notes = await store.cachedNotes();
+  // Show cached notes ASAP — before anything that could throw — so they always
+  // appear even if later initialization hits a problem.
+  try {
+    state.notes = await store.cachedNotes();
+  } catch (e) {
+    console.warn('Xava Notes: cache read failed', e);
+    state.notes = [];
+  }
   render();
+
+  try {
+    wireEvents();
+    reflectAuth();
+  } catch (e) {
+    console.warn('Xava Notes: init failed', e);
+  }
 
   // If we already have a client id, try a silent connect + refresh.
   if (getClientId()) {
@@ -115,8 +126,9 @@ function passesFilters(note) {
 }
 
 function render() {
-  renderTagBar();
+  try { renderTagBar(); } catch (e) { console.warn('Xava Notes: tag bar render failed', e); }
   const list = $('#list');
+  if (!list) return;
   const items = state.notes.filter(passesFilters);
   const filtering = state.query || state.tags.length || state.filter !== 'all';
 
@@ -142,6 +154,7 @@ function isTagActive(tag) {
 // Scrollable bar of all tags (most-used first); active ones highlighted.
 function renderTagBar() {
   const bar = $('#tagBar');
+  if (!bar) return;
   const tags = allTags();
   if (!tags.length) { bar.hidden = true; bar.innerHTML = ''; return; }
   bar.hidden = false;

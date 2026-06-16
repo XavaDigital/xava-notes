@@ -1,7 +1,7 @@
 // Service worker: cache the app shell for offline use and fast loads.
 // Note data is cached separately in IndexedDB by the app.
 
-const CACHE = 'xava-notes-v8';
+const CACHE = 'xava-notes-v9';
 const SHELL = [
   './',
   './index.html',
@@ -36,25 +36,20 @@ self.addEventListener('fetch', (event) => {
   if (request.method !== 'GET') return;
 
   const url = new URL(request.url);
-  // Never cache Google API / auth traffic.
+  // Never touch Google API / auth traffic.
   if (url.origin !== self.location.origin) return;
 
-  // Network-first for navigations; cache-first for static shell assets.
-  if (request.mode === 'navigate') {
-    event.respondWith(
-      fetch(request).catch(() => caches.match('./index.html'))
-    );
-    return;
-  }
-
+  // Network-first for everything same-origin: always get the latest code when
+  // online (prevents stale-asset mismatches), fall back to cache when offline.
   event.respondWith(
-    caches.match(request).then((cached) => {
-      if (cached) return cached;
-      return fetch(request).then((res) => {
+    fetch(request)
+      .then((res) => {
         const copy = res.clone();
         caches.open(CACHE).then((c) => c.put(request, copy)).catch(() => {});
         return res;
-      });
-    })
+      })
+      .catch(() =>
+        caches.match(request).then((cached) => cached || caches.match('./index.html'))
+      )
   );
 });
