@@ -6,6 +6,7 @@ import * as store from './store.js';
 import * as drive from './drive.js';
 import { emptyNote, notePreview } from './note.js';
 import { mdToHtml } from './markdown.js';
+import { parseFiles } from './import.js';
 
 const $ = (sel) => document.querySelector(sel);
 
@@ -633,6 +634,42 @@ function closeEditor() {
   state.current = null;
 }
 
+// --- Import -------------------------------------------------------------
+
+async function handleImportFiles(files) {
+  if (!files.length) return;
+  if (!isSignedIn()) {
+    try { await getToken({ interactive: true }); }
+    catch (e) { setStatus(`Connect Google Drive first: ${e.message}`, true); return; }
+  }
+
+  setStatus('Reading files…', true);
+  const { notes, errors } = await parseFiles(files);
+
+  if (!notes.length) {
+    setStatus(errors.length ? `Import failed: ${errors[0]}` : 'Nothing to import', true);
+    return;
+  }
+
+  let saved = 0;
+  for (const note of notes) {
+    setStatus(`Importing ${saved + 1}/${notes.length}…`, true);
+    try {
+      await store.saveNote(note);
+      saved++;
+    } catch (e) {
+      errors.push(`${note.title || 'note'}: ${e.message}`);
+    }
+  }
+
+  state.notes = await store.cachedNotes();
+  render();
+  hide('#settings');
+  const extra = errors.length ? ` (${errors.length} skipped)` : '';
+  setStatus(`Imported ${saved} item${saved === 1 ? '' : 's'}${extra}`, true);
+  if (errors.length) console.warn('Xava Notes import issues:', errors);
+}
+
 // --- Settings -----------------------------------------------------------
 
 function openSettings() {
@@ -739,8 +776,43 @@ function wireEvents() {
   });
   $('#signOutBtn').addEventListener('click', () => { signOut(); reflectAuth(); });
 
+  // Import
+  $('#importBtn').addEventListener('click', () => $('#importInput').click());
+  $('#importInput').addEventListener('change', async (e) => {
+    const files = Array.from(e.target.files || []);
+    e.target.value = '';
+    await handleImportFiles(files);
+  });
+  wireDragDrop();
+
   window.addEventListener('online', refresh);
   window.addEventListener('offline', () => setStatus('Offline — changes will sync later', true));
+}
+
+function wireDragDrop() {
+  const zone = $('#dropZone');
+  let depth = 0;
+  const hasFiles = (e) => Array.from(e.dataTransfer?.types || []).includes('Files');
+
+  window.addEventListener('dragenter', (e) => {
+    if (!hasFiles(e)) return;
+    e.preventDefault();
+    depth++;
+    if (zone) zone.hidden = false;
+  });
+  window.addEventListener('dragover', (e) => { if (hasFiles(e)) e.preventDefault(); });
+  window.addEventListener('dragleave', (e) => {
+    if (!hasFiles(e)) return;
+    depth = Math.max(0, depth - 1);
+    if (depth === 0 && zone) zone.hidden = true;
+  });
+  window.addEventListener('drop', async (e) => {
+    if (!hasFiles(e)) return;
+    e.preventDefault();
+    depth = 0;
+    if (zone) zone.hidden = true;
+    await handleImportFiles(Array.from(e.dataTransfer.files || []));
+  });
 }
 
 // --- Helpers ------------------------------------------------------------

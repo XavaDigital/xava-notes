@@ -156,12 +156,32 @@
       </section>
 
       <section class="settings-section">
+        <h3>Import</h3>
+        <p class="muted">
+          Bring in notes from <strong>Evernote</strong> (<code>.enex</code>) and
+          tasks from <strong>Todoist</strong> (<code>.csv</code>). You can also
+          drag &amp; drop those files anywhere in the app.
+        </p>
+        <input id="importInput" type="file" multiple hidden
+               accept=".enex,.csv,.md,.markdown,.txt" />
+        <button id="importBtn" class="secondary-btn">Choose files to import</button>
+      </section>
+
+      <section class="settings-section">
         <h3>About</h3>
         <p class="muted">
           Xava Notes &mdash; your notes &amp; tasks are stored as Markdown files in a
           <strong>XavaNotes</strong> folder in your own Google Drive.
         </p>
       </section>
+    </div>
+  </div>
+
+  <!-- Drag & drop import overlay -->
+  <div id="dropZone" class="drop-zone" hidden>
+    <div class="drop-card">
+      <div class="drop-icon">&#8681;</div>
+      <p>Drop Evernote <code>.enex</code> or Todoist <code>.csv</code> files to import</p>
     </div>
   </div>
 
