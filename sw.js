@@ -1,7 +1,7 @@
 // Service worker: cache the app shell for offline use and fast loads.
 // Note data is cached separately in IndexedDB by the app.
 
-const CACHE = 'xava-notes-v13';
+const CACHE = 'xava-notes-v14';
 const SHELL = [
   './',
   './index.html',
@@ -14,6 +14,7 @@ const SHELL = [
   './js/store.js',
   './js/note.js',
   './js/frontmatter.js',
+  './js/markdown.js',
   './icons/icon.svg',
 ];
 

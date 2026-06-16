@@ -5,6 +5,7 @@ import { signIn, signOut, isSignedIn, onAuthChange, getToken } from './auth.js';
 import * as store from './store.js';
 import * as drive from './drive.js';
 import { emptyNote, notePreview } from './note.js';
+import { mdToHtml } from './markdown.js';
 
 const $ = (sel) => document.querySelector(sel);
 
@@ -282,6 +283,7 @@ function openEditor(note) {
   state.current = note;
   $('#titleInput').value = note.title || '';
   $('#bodyInput').value = note.body || '';
+  setPreview(false); // always open in edit mode
   $('#dueInput').value = note.due || '';
   $('#doneInput').checked = !!note.done;
   note.tags = note.tags || [];
@@ -301,6 +303,70 @@ function setType(type) {
   $('#typeNote').classList.toggle('active', type === 'note');
   $('#typeTask').classList.toggle('active', type === 'task');
   $('#taskFields').hidden = type !== 'task';
+}
+
+// --- Body formatting (Markdown) ----------------------------------------
+
+function setPreview(on) {
+  const ta = $('#bodyInput');
+  const pv = $('#bodyPreview');
+  const btn = $('#previewToggle');
+  if (!ta || !pv) return;
+  if (on) {
+    pv.innerHTML = mdToHtml(ta.value);
+    ta.hidden = true;
+    pv.hidden = false;
+  } else {
+    ta.hidden = false;
+    pv.hidden = true;
+  }
+  if (btn) btn.classList.toggle('active', on);
+  $('#formatBar')?.classList.toggle('previewing', on);
+}
+
+function applyFormat(fmt) {
+  const ta = $('#bodyInput');
+  if (!ta || ta.hidden) return;
+  const val = ta.value;
+  const start = ta.selectionStart;
+  const end = ta.selectionEnd;
+  const sel = val.slice(start, end);
+
+  const wrap = (marker, placeholder) => {
+    const inner = sel || placeholder;
+    ta.value = val.slice(0, start) + marker + inner + marker + val.slice(end);
+    const s = start + marker.length;
+    ta.selectionStart = s;
+    ta.selectionEnd = s + inner.length;
+  };
+
+  const prefixLines = (prefix, replaceHeading = false) => {
+    const ls = val.lastIndexOf('\n', start - 1) + 1;
+    let le = val.indexOf('\n', end);
+    if (le === -1) le = val.length;
+    const block = val.slice(ls, le)
+      .split('\n')
+      .map((line) => {
+        let l = line;
+        if (replaceHeading) l = l.replace(/^#{1,6}\s+/, '');
+        else if (l.startsWith(prefix)) return l; // don't stack
+        return prefix + l;
+      })
+      .join('\n');
+    ta.value = val.slice(0, ls) + block + val.slice(le);
+    ta.selectionStart = ls;
+    ta.selectionEnd = ls + block.length;
+  };
+
+  switch (fmt) {
+    case 'bold': wrap('**', 'bold'); break;
+    case 'italic': wrap('_', 'italic'); break;
+    case 'h1': prefixLines('# ', true); break;
+    case 'h2': prefixLines('## ', true); break;
+    case 'ul': prefixLines('- '); break;
+    case 'quote': prefixLines('> '); break;
+  }
+  ta.focus();
 }
 
 function renderSubtasks(note) {
@@ -624,6 +690,15 @@ function wireEvents() {
     setType('task');
     renderSubtasks(state.current);
   });
+  // Body formatting toolbar (mousedown keeps the textarea selection).
+  $('#formatBar').addEventListener('mousedown', (e) => {
+    const btn = e.target.closest('button[data-fmt]');
+    if (!btn) return;
+    e.preventDefault();
+    applyFormat(btn.dataset.fmt);
+  });
+  $('#previewToggle').addEventListener('click', () => setPreview($('#bodyInput').hidden ? false : true));
+
   $('#clearDue').addEventListener('click', () => { $('#dueInput').value = ''; });
   $('#attachBtn').addEventListener('click', () => $('#attachInput').click());
   $('#attachInput').addEventListener('change', async (e) => {

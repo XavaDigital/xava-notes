@@ -1,6 +1,7 @@
 // Note model + (de)serialization to/from a Markdown file with YAML frontmatter.
 
 import { parseFrontmatter, buildFrontmatter } from './frontmatter.js';
+import { stripMarkdown } from './markdown.js';
 
 export function newId() {
   return (
@@ -107,6 +108,6 @@ function firstLine(s) {
 
 // Short preview text for the list view.
 export function notePreview(note) {
-  const text = (note.body || '').replace(/\s+/g, ' ').trim();
+  const text = stripMarkdown(note.body || '').replace(/\s+/g, ' ').trim();
   return text.slice(0, 140);
 }

@@ -61,9 +61,20 @@
       <input id="titleInput" class="title-input" placeholder="Title"
              autocapitalize="sentences" />
 
+      <div id="formatBar" class="format-bar">
+        <button type="button" data-fmt="h1" title="Heading 1">H1</button>
+        <button type="button" data-fmt="h2" title="Heading 2">H2</button>
+        <button type="button" data-fmt="bold" title="Bold"><b>B</b></button>
+        <button type="button" data-fmt="italic" title="Italic"><i>I</i></button>
+        <button type="button" data-fmt="ul" title="Bulleted list">&bull;</button>
+        <button type="button" data-fmt="quote" title="Quote">&rdquo;</button>
+        <button id="previewToggle" type="button" class="preview-toggle" title="Toggle preview">Preview</button>
+      </div>
+
       <textarea id="bodyInput" class="body-input"
                 placeholder="Type or tap the mic on your keyboard to dictate&hellip;"
                 autocapitalize="sentences"></textarea>
+      <div id="bodyPreview" class="body-input body-preview md" hidden></div>
 
       <label class="field">
         <span>Date / due date</span>
