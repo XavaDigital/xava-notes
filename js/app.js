@@ -147,7 +147,8 @@ function openEditor(note) {
   $('#bodyInput').value = note.body || '';
   $('#dueInput').value = note.due || '';
   $('#doneInput').checked = !!note.done;
-  $('#tagsInput').value = (note.tags || []).join(', ');
+  note.tags = note.tags || [];
+  renderTags(note);
   setType(note.type);
   renderSubtasks(note);
   renderAttachments(note);
@@ -279,13 +280,107 @@ async function handleAttachFiles(files) {
   setStatus('');
 }
 
+// --- Tag picker ---------------------------------------------------------
+
+function normalizeTag(raw) {
+  return (raw || '').trim().replace(/^#+/, '').replace(/\s+/g, ' ').trim();
+}
+
+// All tags used across notes, most-used first.
+function allTags() {
+  const counts = new Map();
+  for (const n of state.notes) {
+    for (const t of n.tags || []) {
+      const k = t.toLowerCase();
+      const e = counts.get(k) || { tag: t, count: 0 };
+      e.count++;
+      counts.set(k, e);
+    }
+  }
+  return [...counts.values()]
+    .sort((a, b) => b.count - a.count || a.tag.localeCompare(b.tag))
+    .map((x) => x.tag);
+}
+
+function renderTags(note) {
+  const chips = $('#tagChips');
+  chips.innerHTML = '';
+  (note.tags || []).forEach((t) => {
+    const chip = document.createElement('span');
+    chip.className = 'tag-chip';
+    chip.innerHTML = `#${escapeHtml(t)}<button class="chip-x" aria-label="Remove tag">&times;</button>`;
+    chip.querySelector('.chip-x').addEventListener('click', () => {
+      note.tags = note.tags.filter((x) => x !== t);
+      renderTags(note);
+    });
+    chips.appendChild(chip);
+  });
+  $('#tagInput').value = '';
+  renderTagSuggest('');
+}
+
+function addTag(raw) {
+  const note = state.current;
+  if (!note) return;
+  const tag = normalizeTag(raw);
+  if (!tag) return;
+  note.tags = note.tags || [];
+  // Reuse existing casing if this tag already exists anywhere.
+  const existing = allTags().find((t) => t.toLowerCase() === tag.toLowerCase());
+  const final = existing || tag;
+  if (!note.tags.some((t) => t.toLowerCase() === final.toLowerCase())) {
+    note.tags.push(final);
+  }
+  renderTags(note);
+  $('#tagInput').focus();
+}
+
+function commitPendingTag() {
+  const v = $('#tagInput').value.trim();
+  if (v) addTag(v);
+}
+
+function renderTagSuggest(query) {
+  const box = $('#tagSuggest');
+  const note = state.current;
+  if (!note) { box.hidden = true; return; }
+  const q = normalizeTag(query).toLowerCase();
+  const selected = new Set((note.tags || []).map((t) => t.toLowerCase()));
+
+  let matches = allTags().filter((t) => !selected.has(t.toLowerCase()));
+  if (q) matches = matches.filter((t) => t.toLowerCase().includes(q));
+  matches = matches.slice(0, 8);
+
+  const items = matches.map(
+    (t) => `<button class="tag-opt" data-tag="${escapeAttr(t)}">#${escapeHtml(t)}</button>`
+  );
+  const exact = q && allTags().some((t) => t.toLowerCase() === q);
+  if (q && !exact && !selected.has(q)) {
+    items.push(
+      `<button class="tag-opt create" data-tag="${escapeAttr(q)}">+ Create &ldquo;${escapeHtml(q)}&rdquo;</button>`
+    );
+  }
+
+  if (!items.length) { box.hidden = true; box.innerHTML = ''; return; }
+  box.innerHTML = items.join('');
+  box.querySelectorAll('.tag-opt').forEach((btn) => {
+    // mousedown (not click) so it fires before the input's blur.
+    btn.addEventListener('mousedown', (e) => {
+      e.preventDefault();
+      addTag(btn.dataset.tag);
+    });
+  });
+  box.hidden = false;
+}
+
 function collectEditor() {
+  commitPendingTag(); // fold any uncommitted text in the tag box into tags
   const n = state.current;
   n.title = $('#titleInput').value.trim();
   n.body = $('#bodyInput').value;
   n.due = $('#dueInput').value;
   n.done = $('#doneInput').checked;
-  n.tags = $('#tagsInput').value.split(',').map((t) => t.trim().replace(/^#/, '')).filter(Boolean);
+  // n.tags is maintained live by the tag picker.
 }
 
 async function saveEditor() {
@@ -378,6 +473,26 @@ function wireEvents() {
     const files = Array.from(e.target.files || []);
     e.target.value = ''; // allow re-selecting the same file later
     if (files.length) await handleAttachFiles(files);
+  });
+
+  // Tag picker
+  const tagInput = $('#tagInput');
+  tagInput.addEventListener('input', (e) => renderTagSuggest(e.target.value));
+  tagInput.addEventListener('focus', (e) => renderTagSuggest(e.target.value));
+  tagInput.addEventListener('blur', () => setTimeout(() => { $('#tagSuggest').hidden = true; }, 120));
+  tagInput.addEventListener('keydown', (e) => {
+    const v = e.target.value;
+    if (e.key === 'Enter' || e.key === ',') {
+      e.preventDefault();
+      const first = $('#tagSuggest').querySelector('.tag-opt');
+      if (first && !$('#tagSuggest').hidden) addTag(first.dataset.tag);
+      else addTag(v);
+    } else if (e.key === 'Backspace' && !v) {
+      const note = state.current;
+      if (note?.tags?.length) { note.tags.pop(); renderTags(note); }
+    } else if (e.key === 'Escape') {
+      $('#tagSuggest').hidden = true;
+    }
   });
 
   // Settings

@@ -89,10 +89,15 @@
         <div id="attachmentList" class="attachment-list"></div>
       </div>
 
-      <label class="field">
-        <span>Tags (comma separated)</span>
-        <input id="tagsInput" placeholder="e.g. home, work" autocapitalize="off" />
-      </label>
+      <div class="field">
+        <span>Tags</span>
+        <div id="tagPicker" class="tag-picker">
+          <span id="tagChips" class="tag-chips"></span>
+          <input id="tagInput" class="tag-input" placeholder="Search or add tags…"
+                 autocapitalize="off" autocomplete="off" spellcheck="false" />
+          <div id="tagSuggest" class="tag-suggest" hidden></div>
+        </div>
+      </div>
 
       <div class="sheet-foot">
         <span id="editorMeta" class="editor-meta"></span>
