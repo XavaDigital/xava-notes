@@ -464,13 +464,32 @@ function applyFormat(fmt) {
     ta.selectionEnd = ls + block.length;
   };
 
+  const insert = (text, selectFrom, selectLen) => {
+    ta.value = val.slice(0, start) + text + val.slice(end);
+    const s = selectFrom != null ? start + selectFrom : start + text.length;
+    ta.selectionStart = s;
+    ta.selectionEnd = selectLen != null ? s + selectLen : s;
+  };
+
   switch (fmt) {
     case 'bold': wrap('**', 'bold'); break;
     case 'italic': wrap('_', 'italic'); break;
+    case 'strike': wrap('~~', 'strikethrough'); break;
+    case 'highlight': wrap('==', 'highlight'); break;
+    case 'code': wrap('`', 'code'); break;
     case 'h1': prefixLines('# ', true); break;
     case 'h2': prefixLines('## ', true); break;
+    case 'h3': prefixLines('### ', true); break;
     case 'ul': prefixLines('- '); break;
+    case 'ol': prefixLines('1. '); break;
+    case 'check': prefixLines('- [ ] '); break;
     case 'quote': prefixLines('> '); break;
+    case 'hr': insert('\n---\n'); break;
+    case 'link': {
+      const text = sel || 'link';
+      insert(`[${text}](url)`, text.length + 3, 3); // select the "url" placeholder
+      break;
+    }
   }
   ta.focus();
 }
@@ -761,6 +780,24 @@ async function handleImportFiles(files) {
   for (const note of notes) {
     setStatus(`Importing ${saved + 1}/${notes.length}…`, true);
     try {
+      // Upload any embedded attachments (e.g. from Evernote) to Drive first.
+      if (note.pendingAttachments?.length) {
+        for (const att of note.pendingAttachments) {
+          try {
+            const file = new File([att.blob], att.name, { type: att.mime });
+            const meta = await drive.uploadAttachment(file);
+            note.attachments.push({
+              id: meta.id,
+              name: meta.name || att.name,
+              mime: meta.mimeType || att.mime,
+              size: Number(meta.size) || att.blob.size || 0,
+            });
+          } catch (e) {
+            errors.push(`${note.title || 'note'} attachment: ${e.message}`);
+          }
+        }
+        delete note.pendingAttachments;
+      }
       await store.saveNote(note);
       saved++;
     } catch (e) {

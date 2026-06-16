@@ -15,7 +15,8 @@ the app talks to Drive directly from your browser.
 - 📓 **Notebooks** (lists/projects): jump into a notebook view; new items are auto-filed there
 - ✅ Tasks with **completion**, **subtasks**, **due dates**, and **tags**
 - 📎 **Image & file attachments** — stored in a `XavaNotes/attachments` subfolder in your Drive; images preview as thumbnails
-- 📥 **Import** from Evernote (`.enex`) and Todoist (`.csv`) by drag & drop (or Settings → Import)
+- 📥 **Import** from Evernote (`.enex`, incl. attachments) and Todoist (`.csv`, project → notebook) by drag & drop
+- ✍️ **Markdown formatting** toolbar: headings, bold/italic/strikethrough, highlight, lists, checkboxes, quote, code, links, divider — with live preview
 - 🔍 Instant search across titles, bodies, tags, and subtasks
 - 📲 Installable **PWA** (add to home screen on Android; runs in any browser on Windows)
 - ⚡ Offline-capable: notes are cached locally and synced to Drive when online

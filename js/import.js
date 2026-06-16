@@ -18,7 +18,8 @@ export async function parseFiles(files) {
       const text = await file.text();
       const name = (file.name || '').toLowerCase();
       if (name.endsWith('.enex')) notes.push(...parseEnex(text));
-      else if (name.endsWith('.csv')) notes.push(...parseTodoistCsv(text));
+      // A Todoist CSV is exported per-project; use the file name as the notebook.
+      else if (name.endsWith('.csv')) notes.push(...parseTodoistCsv(text, baseName(file.name)));
       else if (name.endsWith('.md') || name.endsWith('.txt') || name.endsWith('.markdown')) {
         notes.push(parsePlain(file.name, text));
       } else {
@@ -61,9 +62,32 @@ function parseEnex(xml) {
     n.tags = tags;
     if (created) n.created = created;
     if (updated) n.updated = updated;
+
+    // Collect embedded resources (images/files) as pending attachments. The
+    // caller uploads these to Drive and moves them onto n.attachments.
+    const pending = [];
+    for (const res of noteEl.querySelectorAll('resource')) {
+      const data = textOf(res.querySelector('data'));
+      if (!data) continue;
+      const mime = textOf(res.querySelector('mime')) || 'application/octet-stream';
+      const fname = textOf(res.querySelector('resource-attributes > file-name'))
+        || `attachment.${(mime.split('/')[1] || 'bin').replace(/[^a-z0-9]/gi, '')}`;
+      try {
+        pending.push({ name: fname, mime, blob: base64ToBlob(data, mime) });
+      } catch { /* skip undecodable resource */ }
+    }
+    if (pending.length) n.pendingAttachments = pending;
+
     out.push(n);
   }
   return out;
+}
+
+function base64ToBlob(b64, mime) {
+  const bin = atob((b64 || '').replace(/\s+/g, ''));
+  const arr = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+  return new Blob([arr], { type: mime || 'application/octet-stream' });
 }
 
 function enexTime(s) {
@@ -80,6 +104,20 @@ function enmlToMarkdown(enml) {
   return walk(root).replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
 }
 
+// Wrap inner text with Markdown markers implied by an element's inline style
+// (Evernote relies heavily on style attributes rather than tags).
+function styleWrap(el, inner) {
+  const t = inner.trim();
+  if (!t) return inner;
+  const st = (el.getAttribute('style') || '').toLowerCase();
+  let s = t;
+  if (/font-weight\s*:\s*(bold|[6-9]00)/.test(st)) s = `**${s}**`;
+  if (/font-style\s*:\s*italic/.test(st)) s = `_${s}_`;
+  if (/text-decoration[^;]*line-through/.test(st)) s = `~~${s}~~`;
+  if (/background(-color)?\s*:\s*(?!transparent|#fff(fff)?\b|white)[^;]+/.test(st)) s = `==${s}==`;
+  return s;
+}
+
 function walk(node) {
   let md = '';
   node.childNodes.forEach((child) => {
@@ -87,24 +125,32 @@ function walk(node) {
     if (child.nodeType !== 1) return;
     const tag = child.tagName.toLowerCase();
     const inner = walk(child);
+    const t = inner.trim();
     switch (tag) {
       case 'br': md += '\n'; break;
+      case 'hr': md += '\n---\n'; break;
       case 'div': case 'p': md += inner.replace(/\n+$/, '') + '\n'; break;
-      case 'h1': md += `\n# ${inner.trim()}\n`; break;
-      case 'h2': md += `\n## ${inner.trim()}\n`; break;
-      case 'h3': case 'h4': md += `\n### ${inner.trim()}\n`; break;
-      case 'b': case 'strong': md += inner.trim() ? `**${inner.trim()}**` : ''; break;
-      case 'i': case 'em': md += inner.trim() ? `_${inner.trim()}_` : ''; break;
+      case 'h1': md += `\n# ${t}\n`; break;
+      case 'h2': md += `\n## ${t}\n`; break;
+      case 'h3': case 'h4': case 'h5': case 'h6': md += `\n### ${t}\n`; break;
+      case 'b': case 'strong': md += t ? `**${t}**` : ''; break;
+      case 'i': case 'em': md += t ? `_${t}_` : ''; break;
+      case 's': case 'strike': case 'del': md += t ? `~~${t}~~` : ''; break;
+      case 'mark': md += t ? `==${t}==` : ''; break;
+      case 'u': md += inner; break; // underline has no Markdown; keep text
+      case 'code': case 'tt': case 'kbd': md += t ? '`' + t + '`' : ''; break;
+      case 'pre': md += `\n\`\`\`\n${t}\n\`\`\`\n`; break;
       case 'ul': case 'ol': md += `\n${inner}\n`; break;
-      case 'li': md += `- ${inner.trim()}\n`; break;
-      case 'blockquote': md += `> ${inner.trim()}\n`; break;
+      case 'li': md += `- ${t}\n`; break;
+      case 'blockquote': md += `> ${t}\n`; break;
       case 'en-todo': md += child.getAttribute('checked') === 'true' ? '- [x] ' : '- [ ] '; break;
       case 'a': {
         const href = child.getAttribute('href');
-        md += href ? `[${inner.trim() || href}](${href})` : inner;
+        md += href ? `[${t || href}](${href})` : inner;
         break;
       }
-      case 'en-media': md += '_[attachment not imported]_\n'; break;
+      case 'en-media': md += '\n📎 _(attachment, see below)_\n'; break;
+      case 'span': case 'font': md += styleWrap(child, inner); break;
       default: md += inner;
     }
   });
@@ -113,7 +159,7 @@ function walk(node) {
 
 // --- Todoist .csv -------------------------------------------------------
 
-export function parseTodoistCsv(csv) {
+export function parseTodoistCsv(csv, notebook = '') {
   const rows = parseCsv(csv);
   if (!rows.length) return [];
   const header = rows.shift().map((h) => h.trim().toUpperCase());
@@ -148,6 +194,7 @@ export function parseTodoistCsv(csv) {
     if (iDesc >= 0 && r[iDesc]) n.body = r[iDesc].trim();
     const due = todoistDate(r[iDate]);
     if (due) n.due = due;
+    if (notebook) n.notebook = notebook;
     if (sectionTag) n.tags = [sectionTag];
     out.push(n);
     current = n;
@@ -189,4 +236,8 @@ export function parseCsv(text) {
 
 function textOf(el) {
   return el ? (el.textContent || '').trim() : '';
+}
+
+function baseName(filename) {
+  return (filename || '').replace(/\.[^.]+$/, '').trim() || 'Imported';
 }
