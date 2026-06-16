@@ -530,9 +530,10 @@ function openSettings() {
 
 function reflectAuth() {
   const signed = isSignedIn();
-  $('#accountStatus').textContent = signed ? 'Connected to Google Drive.' : 'Not connected.';
-  $('#signInBtn').hidden = signed;
-  $('#signOutBtn').hidden = !signed;
+  const status = $('#accountStatus');
+  if (status) status.textContent = signed ? 'Connected to Google Drive.' : 'Not connected.';
+  const inBtn = $('#signInBtn'); if (inBtn) inBtn.hidden = signed;
+  const outBtn = $('#signOutBtn'); if (outBtn) outBtn.hidden = !signed;
 }
 
 // --- Events -------------------------------------------------------------
@@ -618,12 +619,13 @@ function wireEvents() {
 
 const $$ = (sel) => Array.from(document.querySelectorAll(sel));
 
-function show(sel) { $(sel).hidden = false; document.body.style.overflow = 'hidden'; }
-function hide(sel) { $(sel).hidden = true; document.body.style.overflow = ''; }
+function show(sel) { const el = $(sel); if (el) { el.hidden = false; document.body.style.overflow = 'hidden'; } }
+function hide(sel) { const el = $(sel); if (el) { el.hidden = true; document.body.style.overflow = ''; } }
 
 let statusTimer;
 function setStatus(msg, sticky = false) {
   const el = $('#status');
+  if (!el) return;
   if (!msg) { el.hidden = true; return; }
   el.textContent = msg;
   el.hidden = false;
