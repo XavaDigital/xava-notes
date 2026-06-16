@@ -95,7 +95,30 @@ body {
   background: var(--surface-2); color: var(--muted);
 }
 .badge.overdue { background: rgba(255,95,86,.15); color: var(--danger); }
-.tag { font-size: 12px; color: var(--accent); }
+.tag {
+  font-size: 12px; color: var(--accent);
+  background: none; border: 1px solid transparent; cursor: pointer;
+  padding: 1px 6px; border-radius: 999px; font-family: inherit;
+}
+.tag:hover { border-color: var(--accent); }
+.tag.active { background: var(--accent); color: #fff; }
+
+/* Active tag filter pill */
+.active-tag {
+  padding: 0 12px 10px; max-width: 760px; width: 100%; margin: 0 auto;
+}
+.active-pill {
+  display: inline-flex; align-items: center; gap: 4px;
+  background: var(--surface-2); color: var(--muted);
+  border: 1px solid var(--border); border-radius: 999px;
+  padding: 5px 6px 5px 12px; font-size: 13px;
+}
+.active-pill strong { color: var(--accent); margin: 0 2px; }
+.active-pill .chip-x {
+  background: none; border: none; color: var(--muted);
+  cursor: pointer; font-size: 16px; line-height: 1; padding: 0 4px;
+}
+.active-pill .chip-x:hover { color: var(--danger); }
 
 .check {
   flex: none; width: 22px; height: 22px; margin-top: 1px;

@@ -12,6 +12,7 @@ const state = {
   notes: [],
   filter: 'all',
   query: '',
+  tag: null, // active tag filter (from tapping a card tag)
   current: null, // note being edited
 };
 
@@ -72,26 +73,59 @@ function matchesFilter(note) {
   }
 }
 
-function matchesQuery(note) {
-  if (!state.query) return true;
-  const q = state.query.toLowerCase();
-  const hay = [
-    note.title,
-    note.body,
-    (note.tags || []).join(' '),
-    (note.subtasks || []).map((s) => s.text).join(' '),
-  ].join(' ').toLowerCase();
-  return hay.includes(q);
+function noteHasTag(note, tag) {
+  const k = tag.toLowerCase();
+  return (note.tags || []).some((t) => t.toLowerCase() === k);
+}
+
+// Split the search box into #tag tokens and free-text words.
+function parseSearch(q) {
+  const tags = [];
+  const words = [];
+  for (const tok of (q || '').split(/\s+/)) {
+    if (!tok) continue;
+    if (tok.startsWith('#') && tok.length > 1) tags.push(tok.slice(1));
+    else words.push(tok);
+  }
+  return { tags, text: words.join(' ') };
+}
+
+// All tags currently required: the tapped tag plus any #tags in the search box.
+function activeTagFilters() {
+  const { tags } = parseSearch(state.query);
+  const all = [...tags];
+  if (state.tag) all.push(state.tag);
+  return all;
+}
+
+function passesFilters(note) {
+  if (!matchesFilter(note)) return false;
+  for (const t of activeTagFilters()) {
+    if (!noteHasTag(note, t)) return false;
+  }
+  const { text } = parseSearch(state.query);
+  if (text) {
+    const hay = [
+      note.title,
+      note.body,
+      (note.tags || []).join(' '),
+      (note.subtasks || []).map((s) => s.text).join(' '),
+    ].join(' ').toLowerCase();
+    if (!hay.includes(text.toLowerCase())) return false;
+  }
+  return true;
 }
 
 function render() {
+  renderActiveTag();
   const list = $('#list');
-  const items = state.notes.filter((n) => matchesFilter(n) && matchesQuery(n));
+  const items = state.notes.filter(passesFilters);
+  const filtering = state.query || state.tag || state.filter !== 'all';
 
   if (items.length === 0) {
     list.innerHTML = `<div class="empty">
-      <p>${state.query ? 'No matches.' : 'No notes yet.'}</p>
-      <p class="muted">${state.query ? '' : 'Tap + to capture your first note.'}</p>
+      <p>${filtering ? 'No matches.' : 'No notes yet.'}</p>
+      <p class="muted">${filtering ? '' : 'Tap + to capture your first note.'}</p>
     </div>`;
     return;
   }
@@ -100,6 +134,25 @@ function render() {
   for (const note of items) {
     list.appendChild(renderCard(note));
   }
+}
+
+// Show a removable pill for the tapped-tag filter.
+function renderActiveTag() {
+  const bar = $('#activeTag');
+  if (!state.tag) { bar.hidden = true; bar.innerHTML = ''; return; }
+  bar.hidden = false;
+  bar.innerHTML =
+    `<span class="active-pill">Filtering by <strong>#${escapeHtml(state.tag)}</strong>` +
+    `<button class="chip-x" aria-label="Clear tag filter">&times;</button></span>`;
+  bar.querySelector('.chip-x').addEventListener('click', () => {
+    state.tag = null;
+    render();
+  });
+}
+
+function toggleTagFilter(tag) {
+  state.tag = state.tag && state.tag.toLowerCase() === tag.toLowerCase() ? null : tag;
+  render();
 }
 
 function renderCard(note) {
@@ -121,7 +174,7 @@ function renderCard(note) {
           ${isTask && note.due ? `<span class="badge ${isOverdue(note) ? 'overdue' : ''}">${formatDue(note.due)}</span>` : ''}
           ${subTotal ? `<span class="badge">${subDone}/${subTotal} subtasks</span>` : ''}
           ${(note.attachments || []).length ? `<span class="badge">📎 ${note.attachments.length}</span>` : ''}
-          ${(note.tags || []).map((t) => `<span class="tag">#${escapeHtml(t)}</span>`).join('')}
+          ${(note.tags || []).map((t) => `<button class="tag ${state.tag && state.tag.toLowerCase() === t.toLowerCase() ? 'active' : ''}" data-tag="${escapeAttr(t)}">#${escapeHtml(t)}</button>`).join('')}
         </div>
       </div>
     </div>`;
@@ -135,6 +188,12 @@ function renderCard(note) {
       await store.saveNote(note);
     });
   }
+  card.querySelectorAll('.tag').forEach((btn) => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation(); // don't open the editor
+      toggleTagFilter(btn.dataset.tag);
+    });
+  });
   card.querySelector('.card-text').addEventListener('click', () => openEditor(note));
   return card;
 }

@@ -16,7 +16,7 @@
     <header class="topbar">
       <button id="menuBtn" class="icon-btn" title="Menu" aria-label="Menu">&#9776;</button>
       <div class="search-wrap">
-        <input id="searchInput" type="search" placeholder="Search notes &amp; tasks&hellip;"
+        <input id="searchInput" type="search" placeholder="Search&hellip; (try #tag)"
                autocomplete="off" autocapitalize="off" />
       </div>
       <button id="syncBtn" class="icon-btn" title="Sync now" aria-label="Sync">&#8635;</button>
@@ -30,6 +30,9 @@
       <button class="chip" data-filter="today">Due today</button>
       <button class="chip" data-filter="open">Open</button>
     </nav>
+
+    <!-- Active tag filter pill -->
+    <div id="activeTag" class="active-tag" hidden></div>
 
     <!-- Main list -->
     <main id="list" class="list" aria-live="polite"></main>
