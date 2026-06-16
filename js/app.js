@@ -96,28 +96,54 @@ async function boot() {
   }
 
   // If launched via the Android share sheet, open a pre-filled new note.
-  handleShareTarget();
+  await handleSharedContent();
 }
 
-// Web Share Target: the manifest registers the app to receive shared
-// title/text/url as query params; turn them into a new note.
-function handleShareTarget() {
-  const p = new URLSearchParams(location.search);
-  const title = p.get('title') || '';
-  const text = p.get('text') || '';
-  const url = p.get('url') || '';
-  if (!title && !text && !url) return;
+// Web Share Target: the service worker stashed the shared title/text/url and any
+// files in the 'xn-shared' cache and redirected here with ?shared=1. Build a new
+// note from it, uploading shared files as attachments.
+async function handleSharedContent() {
+  if (!new URLSearchParams(location.search).has('shared')) return;
+  history.replaceState({}, '', location.pathname); // don't re-trigger on refresh
 
-  // Clean the URL so a refresh doesn't reopen the shared note.
-  history.replaceState({}, '', location.pathname);
+  let meta = { title: '', text: '', url: '', files: [] };
+  const files = [];
+  try {
+    const cache = await caches.open('xn-shared');
+    const metaRes = await cache.match('./shared-meta');
+    if (metaRes) meta = await metaRes.json();
+    for (const f of meta.files || []) {
+      const res = await cache.match(f.key);
+      if (res) files.push(new File([await res.blob()], f.name, { type: f.type }));
+      await cache.delete(f.key);
+    }
+    await cache.delete('./shared-meta');
+  } catch (e) { console.warn('Xava Notes: share read failed', e); }
 
   const n = emptyNote('note');
-  n.title = title;
-  let body = text;
-  if (url && url !== text) body += (body ? '\n\n' : '') + url;
+  n.title = meta.title || '';
+  let body = meta.text || '';
+  if (meta.url && meta.url !== meta.text) body += (body ? '\n\n' : '') + meta.url;
   n.body = body;
   if (state.notebook) n.notebook = state.notebook;
-  openEditor(n);
+
+  if (files.length) {
+    if (!isSignedIn()) { try { await getToken({ interactive: true }); } catch {} }
+    for (const file of files) {
+      setStatus(`Attaching ${file.name}…`, true, true);
+      try {
+        const m = await drive.uploadAttachment(file);
+        n.attachments.push({
+          id: m.id, name: m.name || file.name,
+          mime: m.mimeType || file.type || '', size: Number(m.size) || file.size || 0,
+        });
+      } catch (e) {
+        setStatus(`Couldn't attach ${file.name}: ${e.message}`, true);
+      }
+    }
+    setStatus('');
+  }
+  openEditor(n, { edit: true });
 }
 
 onAuthChange(async (signed) => {
@@ -206,13 +232,19 @@ function matchesText(note) {
   return hay.includes(text.toLowerCase());
 }
 
+function inNotebook(note, sel) {
+  const nb = (note.notebook || '').toLowerCase();
+  const s = sel.toLowerCase();
+  return nb === s || nb.startsWith(s + '/'); // a notebook includes its sub-notebooks
+}
+
 function passesFilters(note) {
   // Trash view shows only soft-deleted items (search still works); the normal
   // views never show deleted items.
   if (state.trash) return !!note.deleted && matchesText(note);
   if (note.deleted) return false;
 
-  if (state.notebook && (note.notebook || '').toLowerCase() !== state.notebook.toLowerCase()) return false;
+  if (state.notebook && !inNotebook(note, state.notebook)) return false;
   if (!matchesFilter(note)) return false;
   for (const t of activeTagFilters()) {
     if (!noteHasTag(note, t)) return false;
@@ -627,20 +659,50 @@ function openDrawer() {
 }
 function closeDrawer() { closeOverlayByUser(); }
 
+// Build a tree from flat "Parent/Child" notebook paths, synthesizing any
+// intermediate parent groups that have no notes of their own.
+function notebookTree() {
+  const nodes = new Map();
+  const ensure = (path) => {
+    if (nodes.has(path)) return nodes.get(path);
+    const segs = path.split('/');
+    const node = { path, name: segs[segs.length - 1], depth: segs.length - 1, children: [] };
+    nodes.set(path, node);
+    if (segs.length > 1) ensure(segs.slice(0, -1).join('/')).children.push(node);
+    return node;
+  };
+  for (const b of allNotebooks()) {
+    const segs = b.name.split('/');
+    let acc = '';
+    for (let i = 0; i < segs.length; i++) { acc = i === 0 ? segs[0] : `${acc}/${segs[i]}`; ensure(acc); }
+  }
+  const sortRec = (n) => { n.children.sort((a, b) => a.name.localeCompare(b.name)); n.children.forEach(sortRec); };
+  const roots = [...nodes.values()].filter((n) => n.depth === 0).sort((a, b) => a.name.localeCompare(b.name));
+  roots.forEach(sortRec);
+  return roots;
+}
+
+// Count of (non-deleted) notes in a notebook path, including its sub-notebooks.
+function notebookCount(path) {
+  return state.notes.filter((n) => !n.deleted && n.notebook && inNotebook(n, path)).length;
+}
+
 function notebookListHTML() {
-  const books = allNotebooks();
   const total = state.notes.filter((n) => !n.deleted).length;
   const trashCount = state.notes.filter((n) => n.deleted).length;
   const allActive = !state.notebook && !state.trash;
   let html =
     `<button class="notebook-item ${allActive ? 'active' : ''}" data-nb="">` +
     `<span>All notes</span><span class="nb-count">${total}</span></button>`;
-  for (const b of books) {
-    const active = !state.trash && state.notebook && state.notebook.toLowerCase() === b.name.toLowerCase();
+  const row = (node) => {
+    const active = !state.trash && state.notebook && state.notebook.toLowerCase() === node.path.toLowerCase();
     html +=
-      `<button class="notebook-item ${active ? 'active' : ''}" data-nb="${escapeAttr(b.name)}">` +
-      `<span>${escapeHtml(b.name)}</span><span class="nb-count">${b.count}</span></button>`;
-  }
+      `<button class="notebook-item ${active ? 'active' : ''}" data-nb="${escapeAttr(node.path)}"` +
+      ` style="padding-left:${12 + node.depth * 16}px">` +
+      `<span>${escapeHtml(node.name)}</span><span class="nb-count">${notebookCount(node.path)}</span></button>`;
+    node.children.forEach(row);
+  };
+  notebookTree().forEach(row);
   html +=
     `<button class="notebook-item trash ${state.trash ? 'active' : ''}" data-trash="1">` +
     `<span>&#128465; Trash</span><span class="nb-count">${trashCount}</span></button>`;
@@ -718,8 +780,9 @@ function goToInbox() {
 }
 
 function createNotebook() {
-  const name = (prompt('New notebook name') || '').trim();
-  if (!name) return name;
+  const name = (prompt('New notebook name (use "/" to nest, e.g. Work/Project X)') || '').trim()
+    .replace(/^\/+|\/+$/g, '').replace(/\s*\/\s*/g, '/'); // tidy separators
+  if (!name) return '';
   registerNotebook(name);
   return name;
 }

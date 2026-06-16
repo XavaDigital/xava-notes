@@ -1,7 +1,7 @@
 // Service worker: cache the app shell for offline use and fast loads.
 // Note data is cached separately in IndexedDB by the app.
 
-const CACHE = 'xava-notes-v28';
+const CACHE = 'xava-notes-v29';
 const SHELL = [
   './',
   './index.html',
@@ -33,11 +33,45 @@ self.addEventListener('activate', (event) => {
   );
 });
 
+// Receive shared files/text from the Android share sheet (Web Share Target,
+// POST). Stash everything in a cache and redirect into the app with ?shared=1.
+async function handleShareTarget(request) {
+  try {
+    const form = await request.formData();
+    const cache = await caches.open('xn-shared');
+    const meta = {
+      title: form.get('title') || '',
+      text: form.get('text') || '',
+      url: form.get('url') || '',
+      files: [],
+    };
+    let i = 0;
+    for (const f of form.getAll('files')) {
+      if (!f || typeof f === 'string') continue;
+      const key = `./shared-file-${i}`;
+      await cache.put(new Request(key), new Response(f, {
+        headers: { 'Content-Type': f.type || 'application/octet-stream' },
+      }));
+      meta.files.push({ key, name: f.name || `file-${i}`, type: f.type || 'application/octet-stream' });
+      i++;
+    }
+    await cache.put(new Request('./shared-meta'), new Response(JSON.stringify(meta), {
+      headers: { 'Content-Type': 'application/json' },
+    }));
+  } catch (e) { /* ignore; still redirect */ }
+  return Response.redirect(new URL('./?shared=1', self.registration.scope).href, 303);
+}
+
 self.addEventListener('fetch', (event) => {
   const { request } = event;
+  const url = new URL(request.url);
+
+  if (request.method === 'POST' && url.pathname.endsWith('/share-target')) {
+    event.respondWith(handleShareTarget(request));
+    return;
+  }
   if (request.method !== 'GET') return;
 
-  const url = new URL(request.url);
   // Never touch Google API / auth traffic.
   if (url.origin !== self.location.origin) return;
 
