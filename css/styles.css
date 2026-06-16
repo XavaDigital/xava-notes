@@ -79,13 +79,27 @@ body {
   max-width: 760px; width: 100%; margin: 0 auto;
 }
 .card {
+  position: relative; overflow: hidden;
   background: var(--surface); border: 1px solid var(--border);
-  border-radius: var(--radius); padding: 12px 14px;
+  border-radius: var(--radius);
   cursor: pointer; transition: border-color .15s;
 }
+.card-front {
+  position: relative; z-index: 1; background: var(--surface);
+  padding: 12px 14px; border-radius: inherit;
+  transition: transform .18s ease;
+}
+.card.swiped .card-front { transform: translateX(-88px); }
+.card-actions { position: absolute; top: 0; right: 0; bottom: 0; width: 88px; display: flex; z-index: 0; }
+.card-edit {
+  width: 100%; border: none; background: var(--accent); color: #fff;
+  cursor: pointer; font-size: 14px; font-weight: 600;
+}
+.card-edit:active { background: var(--accent-2); }
 .card:active { border-color: var(--accent); }
 .card.done { opacity: .55; }
-.card.overdue { box-shadow: inset 4px 0 0 var(--danger); border-color: rgba(255,95,86,.4); }
+.card.overdue { border-color: rgba(255,95,86,.4); }
+.card.overdue .card-front { box-shadow: inset 4px 0 0 var(--danger); }
 .card.done .card-title { text-decoration: line-through; }
 .card-main { display: flex; gap: 12px; align-items: flex-start; }
 .card-text { flex: 1; min-width: 0; }

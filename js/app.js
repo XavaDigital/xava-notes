@@ -349,18 +349,21 @@ function renderCard(note) {
   const subTotal = (note.subtasks || []).length;
 
   card.innerHTML = `
-    <div class="card-main">
-      ${isTask ? `<button class="check ${note.done ? 'checked' : ''}" aria-label="Toggle done"></button>` : '<span class="dot"></span>'}
-      <div class="card-text">
-        <div class="card-title">${escapeHtml(note.title || notePreview(note) || 'Untitled')}</div>
-        ${note.title && note.body ? `<div class="card-preview">${escapeHtml(notePreview(note))}</div>` : ''}
-        <div class="card-meta">
-          ${note.unsynced ? '<span class="badge unsynced" title="Saved on this device — not yet on Drive">● Unsynced</span>' : ''}
-          ${note.notebook ? `<button class="nb-chip" data-nb="${escapeAttr(note.notebook)}">&#128214; ${escapeHtml(note.notebook)}</button>` : ''}
-          ${note.due ? `<span class="badge ${isOverdue(note) ? 'overdue' : ''}">${formatDue(note.due)}</span>` : ''}
-          ${subTotal ? `<span class="badge">${subDone}/${subTotal} subtasks</span>` : ''}
-          ${(note.attachments || []).length ? `<span class="badge">📎 ${note.attachments.length}</span>` : ''}
-          ${(note.tags || []).map((t) => `<button class="tag ${isTagActive(t) ? 'active' : ''}" data-tag="${escapeAttr(t)}">#${escapeHtml(t)}</button>`).join('')}
+    <div class="card-actions"><button class="card-edit" aria-label="Edit note">&#9998; Edit</button></div>
+    <div class="card-front">
+      <div class="card-main">
+        ${isTask ? `<button class="check ${note.done ? 'checked' : ''}" aria-label="Toggle done"></button>` : '<span class="dot"></span>'}
+        <div class="card-text">
+          <div class="card-title">${escapeHtml(note.title || notePreview(note) || 'Untitled')}</div>
+          ${note.title && note.body ? `<div class="card-preview">${escapeHtml(notePreview(note))}</div>` : ''}
+          <div class="card-meta">
+            ${note.unsynced ? '<span class="badge unsynced" title="Saved on this device — not yet on Drive">● Unsynced</span>' : ''}
+            ${note.notebook ? `<button class="nb-chip" data-nb="${escapeAttr(note.notebook)}">&#128214; ${escapeHtml(note.notebook)}</button>` : ''}
+            ${note.due ? `<span class="badge ${isOverdue(note) ? 'overdue' : ''}">${formatDue(note.due)}</span>` : ''}
+            ${subTotal ? `<span class="badge">${subDone}/${subTotal} subtasks</span>` : ''}
+            ${(note.attachments || []).length ? `<span class="badge">📎 ${note.attachments.length}</span>` : ''}
+            ${(note.tags || []).map((t) => `<button class="tag ${isTagActive(t) ? 'active' : ''}" data-tag="${escapeAttr(t)}">#${escapeHtml(t)}</button>`).join('')}
+          </div>
         </div>
       </div>
     </div>`;
@@ -406,11 +409,61 @@ function renderCard(note) {
   });
   card.addEventListener('dragend', () => { draggingNoteId = null; card.classList.remove('dragging'); });
 
+  // Swipe-to-reveal the Edit action (touch). Edit opens straight in edit mode.
+  card.querySelector('.card-edit').addEventListener('click', (e) => {
+    e.stopPropagation();
+    card.classList.remove('swiped');
+    openEditor(note, { edit: true });
+  });
+  if (!state.trash) wireSwipe(card);
+
   card.querySelector('.card-text').addEventListener('click', () => {
+    if (card.classList.contains('swiped')) { card.classList.remove('swiped'); return; }
     if (state.trash) trashItemFlow(note);
     else openEditor(note);
   });
   return card;
+}
+
+const SWIPE_W = 88; // px width of the revealed action
+function closeSwipes(except) {
+  document.querySelectorAll('.card.swiped').forEach((c) => { if (c !== except) c.classList.remove('swiped'); });
+}
+
+function wireSwipe(card) {
+  const front = card.querySelector('.card-front');
+  let startX = null, startY = null, dx = 0, active = false;
+
+  card.addEventListener('touchstart', (e) => {
+    if (state.selectMode) return;
+    const t = e.touches[0];
+    startX = t.clientX; startY = t.clientY; dx = 0; active = false;
+  }, { passive: true });
+
+  card.addEventListener('touchmove', (e) => {
+    if (startX == null) return;
+    const t = e.touches[0];
+    const mx = t.clientX - startX;
+    const my = t.clientY - startY;
+    if (!active) {
+      if (Math.abs(mx) > 8 && Math.abs(mx) > Math.abs(my)) { active = true; closeSwipes(card); }
+      else if (Math.abs(my) > 8) { startX = null; return; } // vertical scroll wins
+    }
+    if (active) {
+      e.preventDefault();
+      // allow left swipe to open; if already open, allow right swipe to close
+      const base = card.classList.contains('swiped') ? -SWIPE_W : 0;
+      dx = Math.max(-SWIPE_W, Math.min(0, base + mx));
+      front.style.transform = `translateX(${dx}px)`;
+    }
+  }, { passive: false });
+
+  card.addEventListener('touchend', () => {
+    if (startX == null) return;
+    front.style.transform = '';
+    if (active) card.classList.toggle('swiped', dx < -SWIPE_W / 2);
+    startX = null; active = false;
+  });
 }
 
 async function trashItemFlow(note) {
