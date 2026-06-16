@@ -407,7 +407,10 @@ function addTag(raw) {
     note.tags.push(final);
   }
   renderTags(note);
+  // Keep focus so you can add several tags in a row; refresh the (focused)
+  // suggestion list to show what's left.
   $('#tagInput').focus();
+  renderTagSuggest('');
 }
 
 function commitPendingTag() {
@@ -436,7 +439,11 @@ function renderTagSuggest(query) {
     );
   }
 
-  if (!items.length) { box.hidden = true; box.innerHTML = ''; return; }
+  // Only show the dropdown while the tag input is actually focused, otherwise
+  // it would sit open over the Save button when the editor first opens.
+  const focused = document.activeElement === $('#tagInput');
+  if (!items.length || !focused) { box.hidden = true; box.innerHTML = ''; return; }
+
   box.innerHTML = items.join('');
   box.querySelectorAll('.tag-opt').forEach((btn) => {
     // mousedown (not click) so it fires before the input's blur.
