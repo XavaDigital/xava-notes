@@ -29,6 +29,8 @@ jobs:
       # Enables Pages on the repo if it isn't already, and sets the build type.
       - name: Configure Pages
         uses: actions/configure-pages@v5
+        with:
+          enablement: true
 
       # Upload the whole site root as the Pages artifact (static, no build step).
       - name: Upload artifact
