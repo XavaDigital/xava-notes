@@ -454,7 +454,10 @@ function renderCard(note) {
   const subTotal = (note.subtasks || []).length;
 
   card.innerHTML = `
-    <div class="card-actions"><button class="card-edit" aria-label="Edit note">&#9998; Edit</button></div>
+    <div class="card-actions">
+      <button class="card-edit" aria-label="Edit note"><span>&#9998;</span>Edit</button>
+      <button class="card-del" aria-label="Delete note"><span>&#128465;</span>Delete</button>
+    </div>
     <div class="card-front">
       <div class="card-main">
         <span class="drag-handle" aria-label="Reorder" title="Drag to reorder">&#8942;&#8942;</span>
@@ -526,6 +529,23 @@ function renderCard(note) {
     card.classList.remove('swiped');
     openEditor(note, { edit: true });
   });
+  // Delete action (revealed by swipe) soft-deletes after confirmation.
+  card.querySelector('.card-del').addEventListener('click', async (e) => {
+    e.stopPropagation();
+    card.classList.remove('swiped');
+    const choice = await showDialog({
+      title: note.title || notePreview(note) || 'Item',
+      message: 'Move this item to Trash?',
+      actions: [
+        { label: 'Move to Trash', value: 'yes', kind: 'danger' },
+        { label: 'Cancel', value: 'no' },
+      ],
+    });
+    if (choice !== 'yes') return;
+    await store.softDeleteNote(note);
+    state.notes = await store.cachedNotes();
+    render();
+  });
 
   // Touch gestures: long-press reorder (manual) + swipe-to-edit.
   if (!state.trash) wireCardGestures(card, note);
@@ -539,7 +559,7 @@ function renderCard(note) {
   return card;
 }
 
-const SWIPE_W = 88; // px width of the revealed action
+const SWIPE_W = 168; // px width of the revealed actions (Edit + Delete)
 function closeSwipes(except) {
   document.querySelectorAll('.card.swiped').forEach((c) => { if (c !== except) c.classList.remove('swiped'); });
 }
