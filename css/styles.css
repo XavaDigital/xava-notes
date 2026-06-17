@@ -56,6 +56,16 @@ body {
 .icon-btn.danger { color: var(--danger); }
 .icon-btn.active { color: var(--accent); }
 
+.sort-btn {
+  flex: none; display: inline-flex; align-items: center; gap: 5px;
+  height: 42px; padding: 0 12px; white-space: nowrap;
+  background: var(--surface); color: var(--text);
+  border: 1px solid var(--border); border-radius: 999px;
+  font-size: 13px; font-family: inherit; cursor: pointer;
+}
+.sort-btn .sort-ico { font-size: 16px; line-height: 1; }
+.sort-btn.active { border-color: var(--accent); color: var(--accent); }
+
 /* Filters */
 .filters {
   display: flex; gap: 8px; overflow-x: auto;

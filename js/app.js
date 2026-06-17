@@ -296,8 +296,11 @@ function render() {
 
   const sortBtn = $('#sortBtn');
   if (sortBtn) {
-    sortBtn.classList.toggle('active', state.sort !== 'date');
-    sortBtn.title = `Sort: ${{ date: 'due date', recent: 'recent', manual: 'manual (drag to reorder)' }[state.sort]}`;
+    const labels = { date: 'Due date', recent: 'Recent', manual: 'Manual' };
+    sortBtn.classList.toggle('active', state.sort === 'manual');
+    sortBtn.title = `Sort: ${labels[state.sort]} (tap to change)`;
+    const lbl = $('#sortLabel');
+    if (lbl) lbl.textContent = labels[state.sort];
   }
   list.classList.toggle('manual', state.sort === 'manual' && !state.trash);
 
