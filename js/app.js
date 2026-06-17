@@ -454,10 +454,8 @@ function renderCard(note) {
   const subTotal = (note.subtasks || []).length;
 
   card.innerHTML = `
-    <div class="card-actions">
-      <button class="card-edit" aria-label="Edit note"><span>&#9998;</span>Edit</button>
-      <button class="card-del" aria-label="Delete note"><span>&#128465;</span>Delete</button>
-    </div>
+    <div class="card-actions card-actions-left"><button class="card-del" aria-label="Delete note"><span>&#128465;</span>Delete</button></div>
+    <div class="card-actions card-actions-right"><button class="card-edit" aria-label="Edit note"><span>&#9998;</span>Edit</button></div>
     <div class="card-front">
       <div class="card-main">
         <span class="drag-handle" aria-label="Reorder" title="Drag to reorder">&#8942;&#8942;</span>
@@ -523,16 +521,16 @@ function renderCard(note) {
     card.addEventListener('dragend', () => { draggingNoteId = null; card.classList.remove('dragging'); });
   }
 
-  // Edit action (revealed by swipe) opens straight in edit mode.
+  // Edit action (swipe left) opens straight in edit mode.
   card.querySelector('.card-edit').addEventListener('click', (e) => {
     e.stopPropagation();
-    card.classList.remove('swiped');
+    closeSwipes(null);
     openEditor(note, { edit: true });
   });
-  // Delete action (revealed by swipe) soft-deletes after confirmation.
+  // Delete action (swipe right) soft-deletes after confirmation.
   card.querySelector('.card-del').addEventListener('click', async (e) => {
     e.stopPropagation();
-    card.classList.remove('swiped');
+    closeSwipes(null);
     const choice = await showDialog({
       title: note.title || notePreview(note) || 'Item',
       message: 'Move this item to Trash?',
@@ -552,16 +550,20 @@ function renderCard(note) {
 
   card.querySelector('.card-text').addEventListener('click', () => {
     if (suppressCardClick) { suppressCardClick = false; return; }
-    if (card.classList.contains('swiped')) { card.classList.remove('swiped'); return; }
+    if (card.classList.contains('show-edit') || card.classList.contains('show-del')) {
+      card.classList.remove('show-edit', 'show-del'); return;
+    }
     if (state.trash) trashItemFlow(note);
     else openEditor(note);
   });
   return card;
 }
 
-const SWIPE_W = 168; // px width of the revealed actions (Edit + Delete)
+const SWIPE_W = 88; // px width of a revealed action (Edit left-swipe / Delete right-swipe)
 function closeSwipes(except) {
-  document.querySelectorAll('.card.swiped').forEach((c) => { if (c !== except) c.classList.remove('swiped'); });
+  document.querySelectorAll('.card.show-edit, .card.show-del').forEach((c) => {
+    if (c !== except) c.classList.remove('show-edit', 'show-del');
+  });
 }
 
 // --- Drag-to-reorder (shared by the desktop handle and mobile long-press) ----
@@ -680,8 +682,10 @@ function wireCardGestures(card, note) {
     }
     if (mode === 'swipe') {
       e.preventDefault();
-      const base = card.classList.contains('swiped') ? -SWIPE_W : 0;
-      dx = Math.max(-SWIPE_W, Math.min(0, base + mx));
+      // Left swipe reveals Edit (front moves left); right swipe reveals Delete.
+      const base = card.classList.contains('show-edit') ? -SWIPE_W
+        : card.classList.contains('show-del') ? SWIPE_W : 0;
+      dx = Math.max(-SWIPE_W, Math.min(SWIPE_W, base + mx));
       front.style.transform = `translateX(${dx}px)`;
     }
   }, { passive: false });
@@ -693,7 +697,9 @@ function wireCardGestures(card, note) {
     else if (mode === 'swipe') {
       suppressCardClick = true;
       front.style.transform = '';
-      card.classList.toggle('swiped', dx < -SWIPE_W / 2);
+      card.classList.remove('show-edit', 'show-del');
+      if (dx < -SWIPE_W / 2) card.classList.add('show-edit');
+      else if (dx > SWIPE_W / 2) card.classList.add('show-del');
     }
     startX = null; mode = null;
   };

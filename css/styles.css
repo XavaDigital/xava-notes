@@ -105,8 +105,11 @@ body {
   padding: 12px 14px; border-radius: inherit;
   transition: transform .18s ease;
 }
-.card.swiped .card-front { transform: translateX(-168px); }
-.card-actions { position: absolute; top: 0; right: 0; bottom: 0; width: 168px; display: flex; z-index: 0; }
+.card.show-edit .card-front { transform: translateX(-88px); } /* swipe left -> Edit */
+.card.show-del .card-front { transform: translateX(88px); }   /* swipe right -> Delete */
+.card-actions { position: absolute; top: 0; bottom: 0; width: 88px; display: flex; z-index: 0; }
+.card-actions-right { right: 0; }
+.card-actions-left { left: 0; }
 .card-edit, .card-del {
   flex: 1; border: none; color: #fff; cursor: pointer;
   font-size: 12px; font-weight: 600;
