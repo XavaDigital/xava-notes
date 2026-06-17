@@ -1,7 +1,7 @@
 // Service worker: cache the app shell for offline use and fast loads.
 // Note data is cached separately in IndexedDB by the app.
 
-const CACHE = 'xava-notes-v37';
+const CACHE = 'xava-notes-v38';
 const SHELL = [
   './',
   './index.html',
@@ -77,8 +77,10 @@ self.addEventListener('fetch', (event) => {
 
   // Network-first for everything same-origin: always get the latest code when
   // online (prevents stale-asset mismatches), fall back to cache when offline.
+  // `cache: 'no-cache'` forces revalidation so the browser's HTTP cache can't
+  // serve a stale asset after a deploy.
   event.respondWith(
-    fetch(request)
+    fetch(request, { cache: 'no-cache' })
       .then((res) => {
         const copy = res.clone();
         caches.open(CACHE).then((c) => c.put(request, copy)).catch(() => {});
