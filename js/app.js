@@ -18,7 +18,7 @@ const state = {
   inbox: true, // default view: uncategorized notes (no notebook)
   notebook: '', // active notebook path ('' with inbox=false means All notes)
   trash: false, // viewing the Trash (soft-deleted items)
-  sort: 'date', // 'date' = by due date (overdue first), 'recent' = by last edited
+  sort: localStorage.getItem('xn.sort') || 'manual', // 'manual' | 'date' | 'recent'
   current: null, // note being edited
   editing: false, // editor is in edit (vs read-only) mode
   selectMode: false, // bulk multi-select
@@ -1563,8 +1563,9 @@ function wireEvents() {
   });
   $('#syncBtn').addEventListener('click', refresh);
   $('#sortBtn').addEventListener('click', () => {
-    const cycle = { date: 'recent', recent: 'manual', manual: 'date' };
-    state.sort = cycle[state.sort] || 'date';
+    const cycle = { manual: 'date', date: 'recent', recent: 'manual' };
+    state.sort = cycle[state.sort] || 'manual';
+    localStorage.setItem('xn.sort', state.sort);
     const labels = { date: 'due date', recent: 'most recent', manual: 'manual order (drag to reorder)' };
     setStatus(`Sorted by ${labels[state.sort]}`);
     render();
