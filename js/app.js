@@ -43,7 +43,36 @@ function registerNotebook(name) {
   }
 }
 
-// All notebooks (from notes + any registered empty ones), with item counts.
+// Manual notebook order (the only ordering for notebooks): a list of paths.
+const LS_NB_ORDER = 'xn.nbOrder';
+function nbOrderList() {
+  try { return JSON.parse(localStorage.getItem(LS_NB_ORDER) || '[]'); }
+  catch { return []; }
+}
+function saveNbOrder(arr) {
+  try { localStorage.setItem(LS_NB_ORDER, JSON.stringify(arr)); } catch {}
+}
+function nbRank(path, order) {
+  const i = order.indexOf(path);
+  return i === -1 ? 1e9 : i;
+}
+
+// Move a notebook (with its whole subtree) to just before targetPath in the
+// manual order (targetPath null = end).
+function dropNotebookBefore(dragged, targetPath) {
+  if (!dragged || dragged === targetPath) return;
+  let order = nbOrderList();
+  if (!order.includes(dragged)) order.push(dragged);
+  const sub = order.filter((p) => p === dragged || p.startsWith(dragged + '/'));
+  order = order.filter((p) => !sub.includes(p));
+  const idx = targetPath ? order.indexOf(targetPath) : -1;
+  if (idx === -1) order = order.concat(sub);
+  else order.splice(idx, 0, ...sub);
+  saveNbOrder(order);
+  render();
+}
+
+// All notebooks (from notes + any registered empty ones), in manual order.
 function allNotebooks() {
   const counts = new Map();
   for (const n of state.notes) {
@@ -57,7 +86,14 @@ function allNotebooks() {
   for (const nb of registeredNotebooks()) {
     if (!counts.has(nb.toLowerCase())) counts.set(nb.toLowerCase(), { name: nb, count: 0 });
   }
-  return [...counts.values()].sort((a, b) => a.name.localeCompare(b.name));
+  const list = [...counts.values()];
+  // Ensure every notebook has a slot in the manual order (new ones appended in
+  // discovery order), then sort by it.
+  const order = nbOrderList();
+  let changed = false;
+  for (const b of list) if (!order.includes(b.name)) { order.push(b.name); changed = true; }
+  if (changed) saveNbOrder(order);
+  return list.sort((a, b) => nbRank(a.name, order) - nbRank(b.name, order) || a.name.localeCompare(b.name));
 }
 
 // --- Boot ---------------------------------------------------------------
@@ -796,13 +832,22 @@ function renderNotebookBar() {
 
 function openScopeMenu() {
   const menu = $('#scopeMenu');
-  const list = $('#scopeList');
+  const panel = menu && menu.querySelector('.scope-panel');
   const btn = $('#scopeBtn');
-  if (!menu || !list || !btn) return;
+  if (!menu || !panel || !btn) return;
   renderNotebooksUI(); // ensure the list is current
+  const search = $('#scopeSearch');
+  if (search) { search.value = ''; filterScopeList(''); }
   const r = btn.getBoundingClientRect();
-  list.style.top = `${Math.round(r.bottom + 6)}px`;
+  panel.style.top = `${Math.round(r.bottom + 6)}px`;
   menu.hidden = false;
+}
+
+function filterScopeList(q) {
+  const query = (q || '').trim().toLowerCase();
+  $('#scopeList').querySelectorAll('.notebook-item').forEach((it) => {
+    it.hidden = !!query && !it.textContent.toLowerCase().includes(query);
+  });
 }
 
 function hideScopeMenu() {
@@ -840,8 +885,10 @@ function notebookTree() {
     let acc = '';
     for (let i = 0; i < segs.length; i++) { acc = i === 0 ? segs[0] : `${acc}/${segs[i]}`; ensure(acc); }
   }
-  const sortRec = (n) => { n.children.sort((a, b) => a.name.localeCompare(b.name)); n.children.forEach(sortRec); };
-  const roots = [...nodes.values()].filter((n) => n.depth === 0).sort((a, b) => a.name.localeCompare(b.name));
+  const order = nbOrderList();
+  const cmp = (a, b) => nbRank(a.path, order) - nbRank(b.path, order) || a.name.localeCompare(b.name);
+  const sortRec = (n) => { n.children.sort(cmp); n.children.forEach(sortRec); };
+  const roots = [...nodes.values()].filter((n) => n.depth === 0).sort(cmp);
   roots.forEach(sortRec);
   return roots;
 }
@@ -887,14 +934,31 @@ function renderNotebooksUI() {
     el.innerHTML = notebookListHTML();
     el.querySelectorAll('.notebook-item').forEach((btn) => {
       btn.addEventListener('click', () => {
+        if (nbReorderJustHappened) { nbReorderJustHappened = false; return; }
         if (btn.dataset.trash) selectTrash();
         else if (btn.dataset.scope === 'inbox') selectInbox();
         else if (btn.dataset.scope === 'all') selectAll();
         else selectNotebook(btn.dataset.nb);
       });
-      // Drop a dragged card here to file it (or trash it).
+
+      // Desktop: drag a notebook to reorder it (native DnD).
+      if (btn.dataset.nb) {
+        btn.draggable = true;
+        btn.addEventListener('dragstart', (e) => {
+          draggingNbPath = btn.dataset.nb;
+          draggingNoteId = null;
+          e.dataTransfer.effectAllowed = 'move';
+          e.dataTransfer.setData('text/plain', btn.dataset.nb);
+          btn.classList.add('nb-dragging');
+        });
+        btn.addEventListener('dragend', () => { draggingNbPath = null; btn.classList.remove('nb-dragging'); });
+        // Mobile: long-press to reorder.
+        wireNbTouchReorder(btn, btn.dataset.nb, el);
+      }
+
+      // Drop target: reorder a dragged notebook, or file a dragged card.
       btn.addEventListener('dragover', (e) => {
-        if (!draggingNoteId) return;
+        if (!draggingNoteId && !draggingNbPath) return;
         e.preventDefault();
         btn.classList.add('drop-hover');
       });
@@ -902,11 +966,71 @@ function renderNotebooksUI() {
       btn.addEventListener('drop', (e) => {
         e.preventDefault();
         btn.classList.remove('drop-hover');
+        if (draggingNbPath && btn.dataset.nb != null) {
+          dropNotebookBefore(draggingNbPath, btn.dataset.nb || null);
+          return;
+        }
         const id = (e.dataTransfer && e.dataTransfer.getData('text/plain')) || draggingNoteId;
         dropNoteOnTarget(id, btn);
       });
     });
   });
+}
+
+let draggingNbPath = null;
+let nbReorderJustHappened = false;
+
+// Touch long-press reorder for a notebook item.
+function wireNbTouchReorder(item, path, listEl) {
+  let lpTimer = null, dragging = false, startY = 0, moved = false;
+  const clearLP = () => { if (lpTimer) { clearTimeout(lpTimer); lpTimer = null; } };
+
+  item.addEventListener('touchstart', (e) => {
+    startY = e.touches[0].clientY; dragging = false; moved = false;
+    nbReorderJustHappened = false;
+    clearLP();
+    lpTimer = setTimeout(() => {
+      dragging = true;
+      item.classList.add('nb-dragging');
+      if (navigator.vibrate) { try { navigator.vibrate(15); } catch {} }
+    }, 400);
+  }, { passive: true });
+
+  item.addEventListener('touchmove', (e) => {
+    const y = e.touches[0].clientY;
+    if (!dragging) { if (Math.abs(y - startY) > 10) clearLP(); return; } // let it scroll
+    e.preventDefault();
+    moved = true;
+    item.style.transform = `translateY(${y - startY}px)`;
+    item.style.zIndex = '5';
+    const items = [...listEl.querySelectorAll('.notebook-item[data-nb]')].filter((el) => el !== item);
+    let target = null;
+    for (const sib of items) {
+      const r = sib.getBoundingClientRect();
+      if (y < r.top + r.height / 2) { target = sib; break; }
+    }
+    item._dropTarget = target;
+    const ind = dropIndicator();
+    if (target) listEl.insertBefore(ind, target);
+    else {
+      const trash = listEl.querySelector('.notebook-item.trash');
+      if (trash) listEl.insertBefore(ind, trash); else listEl.appendChild(ind);
+    }
+  }, { passive: false });
+
+  const end = () => {
+    clearLP();
+    item.style.transform = ''; item.style.zIndex = '';
+    document.getElementById('dropIndicator')?.remove();
+    item.classList.remove('nb-dragging');
+    if (dragging && moved) {
+      nbReorderJustHappened = true;
+      dropNotebookBefore(path, item._dropTarget ? item._dropTarget.dataset.nb : null);
+    }
+    dragging = false;
+  };
+  item.addEventListener('touchend', end);
+  item.addEventListener('touchcancel', end);
 }
 
 async function dropNoteOnTarget(noteId, btn) {
@@ -1576,6 +1700,7 @@ function wireEvents() {
   $('#drawerClose').addEventListener('click', closeDrawer);
   $('#drawerScrim').addEventListener('click', closeDrawer);
   $('#scopeScrim').addEventListener('click', hideScopeMenu);
+  $('#scopeSearch').addEventListener('input', (e) => filterScopeList(e.target.value));
   $('#newNotebook').addEventListener('click', () => {
     const name = createNotebook();
     if (name) selectNotebook(name);

@@ -94,7 +94,11 @@
   <!-- Right-anchored notebook switcher (opened from the scope button) -->
   <div id="scopeMenu" class="scope-menu" hidden>
     <div class="scope-scrim" id="scopeScrim"></div>
-    <nav id="scopeList" class="notebook-list scope-list"></nav>
+    <div class="scope-panel">
+      <input id="scopeSearch" class="scope-search" type="search" placeholder="Search notebooks&hellip;"
+             autocomplete="off" autocapitalize="off" />
+      <nav id="scopeList" class="notebook-list scope-list"></nav>
+    </div>
   </div>
 
   <!-- Editor sheet -->
