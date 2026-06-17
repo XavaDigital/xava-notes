@@ -941,24 +941,16 @@ function renderNotebooksUI() {
         else selectNotebook(btn.dataset.nb);
       });
 
-      // Desktop: drag a notebook to reorder it (native DnD).
+      // Reorder notebooks: long-press on touch, mouse-drag on desktop.
+      // (No native draggable — on Android it hijacks long-press as a native drag.)
       if (btn.dataset.nb) {
-        btn.draggable = true;
-        btn.addEventListener('dragstart', (e) => {
-          draggingNbPath = btn.dataset.nb;
-          draggingNoteId = null;
-          e.dataTransfer.effectAllowed = 'move';
-          e.dataTransfer.setData('text/plain', btn.dataset.nb);
-          btn.classList.add('nb-dragging');
-        });
-        btn.addEventListener('dragend', () => { draggingNbPath = null; btn.classList.remove('nb-dragging'); });
-        // Mobile: long-press to reorder.
         wireNbTouchReorder(btn, btn.dataset.nb, el);
+        wireNbMouseReorder(btn, btn.dataset.nb, el);
       }
 
-      // Drop target: reorder a dragged notebook, or file a dragged card.
+      // Drop target for filing a dragged card.
       btn.addEventListener('dragover', (e) => {
-        if (!draggingNoteId && !draggingNbPath) return;
+        if (!draggingNoteId) return;
         e.preventDefault();
         btn.classList.add('drop-hover');
       });
@@ -966,10 +958,6 @@ function renderNotebooksUI() {
       btn.addEventListener('drop', (e) => {
         e.preventDefault();
         btn.classList.remove('drop-hover');
-        if (draggingNbPath && btn.dataset.nb != null) {
-          dropNotebookBefore(draggingNbPath, btn.dataset.nb || null);
-          return;
-        }
         const id = (e.dataTransfer && e.dataTransfer.getData('text/plain')) || draggingNoteId;
         dropNoteOnTarget(id, btn);
       });
@@ -977,8 +965,54 @@ function renderNotebooksUI() {
   });
 }
 
-let draggingNbPath = null;
 let nbReorderJustHappened = false;
+
+// Find the notebook item to drop before, given a Y coordinate, and place the
+// indicator. Returns the target element (or null = end).
+function nbReorderTarget(item, listEl, y) {
+  const items = [...listEl.querySelectorAll('.notebook-item[data-nb]')].filter((el) => el !== item);
+  let target = null;
+  for (const sib of items) {
+    const r = sib.getBoundingClientRect();
+    if (y < r.top + r.height / 2) { target = sib; break; }
+  }
+  const ind = dropIndicator();
+  if (target) listEl.insertBefore(ind, target);
+  else {
+    const trash = listEl.querySelector('.notebook-item.trash');
+    if (trash) listEl.insertBefore(ind, trash); else listEl.appendChild(ind);
+  }
+  return target;
+}
+
+// Desktop: mouse-drag a notebook to reorder (gated to mouse so it doesn't
+// collide with the touch handler).
+function wireNbMouseReorder(item, path, listEl) {
+  item.addEventListener('pointerdown', (e) => {
+    if (e.pointerType !== 'mouse' || e.button !== 0) return;
+    const startY = e.clientY;
+    let dragging = false, target = null;
+    const onMove = (ev) => {
+      if (!dragging) {
+        if (Math.abs(ev.clientY - startY) < 5) return;
+        dragging = true;
+        item.classList.add('nb-dragging');
+      }
+      item.style.transform = `translateY(${ev.clientY - startY}px)`;
+      item.style.zIndex = '5';
+      target = nbReorderTarget(item, listEl, ev.clientY);
+    };
+    const onUp = () => {
+      window.removeEventListener('pointermove', onMove);
+      item.style.transform = ''; item.style.zIndex = '';
+      document.getElementById('dropIndicator')?.remove();
+      item.classList.remove('nb-dragging');
+      if (dragging) { nbReorderJustHappened = true; dropNotebookBefore(path, target ? target.dataset.nb : null); }
+    };
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp, { once: true });
+  });
+}
 
 // Touch long-press reorder for a notebook item.
 function wireNbTouchReorder(item, path, listEl) {
@@ -1003,19 +1037,7 @@ function wireNbTouchReorder(item, path, listEl) {
     moved = true;
     item.style.transform = `translateY(${y - startY}px)`;
     item.style.zIndex = '5';
-    const items = [...listEl.querySelectorAll('.notebook-item[data-nb]')].filter((el) => el !== item);
-    let target = null;
-    for (const sib of items) {
-      const r = sib.getBoundingClientRect();
-      if (y < r.top + r.height / 2) { target = sib; break; }
-    }
-    item._dropTarget = target;
-    const ind = dropIndicator();
-    if (target) listEl.insertBefore(ind, target);
-    else {
-      const trash = listEl.querySelector('.notebook-item.trash');
-      if (trash) listEl.insertBefore(ind, trash); else listEl.appendChild(ind);
-    }
+    item._dropTarget = nbReorderTarget(item, listEl, y);
   }, { passive: false });
 
   const end = () => {
