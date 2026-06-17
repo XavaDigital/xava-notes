@@ -532,6 +532,11 @@ function wireSwipe(card) {
 }
 
 // Pointer-based drag-to-reorder via the card's handle (works on touch + mouse).
+// Drag-to-reorder. The pointer is captured on the handle (so the gesture keeps
+// tracking and the page doesn't scroll). The card visually follows the finger
+// via transform while staying in place in the DOM (moving the captured element
+// would drop the capture); a drop-indicator line shows where it will land, and
+// the actual reorder happens on release.
 let reorder = null;
 function wireReorder(card, note) {
   const handle = card.querySelector('.drag-handle');
@@ -540,49 +545,63 @@ function wireReorder(card, note) {
     e.preventDefault();
     e.stopPropagation();
     closeSwipes(null);
-    card.classList.add('reordering');
-    reorder = { card, note, pointerId: e.pointerId };
     try { handle.setPointerCapture(e.pointerId); } catch {}
+    reorder = { card, note, handle, list: card.parentElement, startY: e.clientY, target: null };
+    card.classList.add('reordering');
     handle.addEventListener('pointermove', onReorderMove);
-    handle.addEventListener('pointerup', onReorderUp, { once: true });
-    handle.addEventListener('pointercancel', onReorderUp, { once: true });
+    handle.addEventListener('pointerup', endReorder, { once: true });
+    handle.addEventListener('pointercancel', endReorder, { once: true });
   });
+}
+
+function dropIndicator() {
+  let ind = document.getElementById('dropIndicator');
+  if (!ind) {
+    ind = document.createElement('div');
+    ind.id = 'dropIndicator';
+    ind.className = 'drop-indicator';
+  }
+  return ind;
 }
 
 function onReorderMove(e) {
   if (!reorder) return;
-  const { card } = reorder;
-  const list = card.parentElement;
-  if (!list) return;
-  const y = e.clientY;
-  // Auto-scroll near the edges of the viewport.
-  if (y < 90) window.scrollBy(0, -12);
-  else if (y > window.innerHeight - 90) window.scrollBy(0, 12);
+  const { card, list, startY } = reorder;
+  card.style.transform = `translateY(${e.clientY - startY}px)`;
 
-  const siblings = [...list.querySelectorAll('.card:not(.reordering)')];
-  let placed = false;
+  const y = e.clientY;
+  if (y < 80) window.scrollBy(0, -10);
+  else if (y > window.innerHeight - 80) window.scrollBy(0, 10);
+
+  // Find which card we're hovering over and place the indicator there.
+  const siblings = [...list.children].filter((el) => el.classList.contains('card') && el !== card);
+  let target = null;
   for (const sib of siblings) {
     const r = sib.getBoundingClientRect();
-    if (y < r.top + r.height / 2) { list.insertBefore(card, sib); placed = true; break; }
+    if (y < r.top + r.height / 2) { target = sib; break; }
   }
-  if (!placed) list.appendChild(card);
+  reorder.target = target;
+  const ind = dropIndicator();
+  if (target) list.insertBefore(ind, target);
+  else list.appendChild(ind);
 }
 
-async function onReorderUp() {
+async function endReorder() {
   if (!reorder) return;
-  const { card, note } = reorder;
+  const { card, note, list, target, handle } = reorder;
   reorder = null;
+  handle.removeEventListener('pointermove', onReorderMove);
   card.classList.remove('reordering');
-  const handle = card.querySelector('.drag-handle');
-  if (handle) handle.removeEventListener('pointermove', onReorderMove);
+  card.style.transform = '';
+  document.getElementById('dropIndicator')?.remove();
 
-  // Compute a fractional order between the new DOM neighbours.
-  const list = card.parentElement;
-  const cards = [...list.querySelectorAll('.card')];
+  // Move the card to its new position, then derive a fractional order.
+  if (target) list.insertBefore(card, target);
+  else list.appendChild(card);
+  const cards = [...list.children].filter((el) => el.classList.contains('card'));
   const idx = cards.indexOf(card);
-  const prevEl = cards[idx - 1], nextEl = cards[idx + 1];
-  const prevNote = prevEl && state.notes.find((n) => n.id === prevEl.dataset.id);
-  const nextNote = nextEl && state.notes.find((n) => n.id === nextEl.dataset.id);
+  const prevNote = cards[idx - 1] && state.notes.find((n) => n.id === cards[idx - 1].dataset.id);
+  const nextNote = cards[idx + 1] && state.notes.find((n) => n.id === cards[idx + 1].dataset.id);
   const ka = prevNote ? effectiveOrder(prevNote) : null;
   const kb = nextNote ? effectiveOrder(nextNote) : null;
   if (ka == null && kb == null) note.order = effectiveOrder(note);
@@ -731,19 +750,39 @@ async function bulkDelete() {
 function renderNotebookBar() {
   const bar = $('#notebookBar');
   if (!bar) return;
-  let icon, label, removable = false;
-  if (state.trash) { icon = '&#128465;'; label = 'Trash'; removable = true; }
-  else if (state.notebook) { icon = '&#128214;'; label = state.notebook; removable = true; }
+  let icon, label;
+  if (state.trash) { icon = '&#128465;'; label = 'Trash'; }
+  else if (state.notebook) { icon = '&#128214;'; label = state.notebook; }
   else if (state.inbox) { icon = '&#128229;'; label = 'Inbox'; }
   else { icon = '&#128194;'; label = 'All notes'; }
 
   bar.hidden = false;
   bar.innerHTML =
-    `<span class="notebook-pill"><span class="nb-ico">${icon}</span><strong>${escapeHtml(label)}</strong>` +
-    (removable ? '<button class="chip-x" aria-label="Back to Inbox">&times;</button>' : '') +
-    '</span>';
-  const x = bar.querySelector('.chip-x');
-  if (x) x.addEventListener('click', selectInbox);
+    `<button id="scopeBtn" class="scope-btn"><span class="nb-ico">${icon}</span>` +
+    `<strong>${escapeHtml(label)}</strong><span class="caret">&#9662;</span></button>`;
+  $('#scopeBtn').addEventListener('click', openScopeMenu);
+}
+
+function openScopeMenu() {
+  const menu = $('#scopeMenu');
+  const list = $('#scopeList');
+  const btn = $('#scopeBtn');
+  if (!menu || !list || !btn) return;
+  renderNotebooksUI(); // ensure the list is current
+  const r = btn.getBoundingClientRect();
+  list.style.top = `${Math.round(r.bottom + 6)}px`;
+  menu.hidden = false;
+}
+
+function hideScopeMenu() {
+  const m = $('#scopeMenu');
+  if (m) m.hidden = true;
+}
+
+// Close whichever navigation surface is open (drawer overlay or scope menu).
+function closeNav() {
+  hideScopeMenu();
+  if (overlay) closeOverlayByUser();
 }
 
 function openDrawer() {
@@ -811,7 +850,7 @@ function notebookListHTML() {
 // Render the notebook list into both the drawer (mobile) and the sidebar
 // (desktop), wiring click-to-filter and drag-and-drop-to-file.
 function renderNotebooksUI() {
-  ['#notebookList', '#sidebarList'].forEach((sel) => {
+  ['#notebookList', '#sidebarList', '#scopeList'].forEach((sel) => {
     const el = $(sel);
     if (!el) return;
     el.innerHTML = notebookListHTML();
@@ -864,7 +903,7 @@ function selectInbox() {
   state.inbox = true;
   state.notebook = '';
   state.trash = false;
-  closeDrawer();
+  closeNav();
   render();
 }
 
@@ -872,7 +911,7 @@ function selectAll() {
   state.inbox = false;
   state.notebook = '';
   state.trash = false;
-  closeDrawer();
+  closeNav();
   render();
 }
 
@@ -880,7 +919,7 @@ function selectNotebook(name) {
   state.inbox = false;
   state.notebook = name || '';
   state.trash = false;
-  closeDrawer();
+  closeNav();
   render();
 }
 
@@ -888,7 +927,7 @@ function selectTrash() {
   state.trash = true;
   state.inbox = false;
   state.notebook = '';
-  closeDrawer();
+  closeNav();
   render();
 }
 
@@ -1505,6 +1544,7 @@ function wireEvents() {
   // Notebooks drawer
   $('#drawerClose').addEventListener('click', closeDrawer);
   $('#drawerScrim').addEventListener('click', closeDrawer);
+  $('#scopeScrim').addEventListener('click', hideScopeMenu);
   $('#newNotebook').addEventListener('click', () => {
     const name = createNotebook();
     if (name) selectNotebook(name);
