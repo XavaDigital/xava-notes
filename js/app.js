@@ -15,7 +15,8 @@ const state = {
   filter: 'all',
   query: '',
   tags: [], // active tag filters (from tapping cards or the tag bar) — ANDed
-  notebook: '', // active notebook/list view ('' = all notebooks)
+  inbox: true, // default view: uncategorized notes (no notebook)
+  notebook: '', // active notebook path ('' with inbox=false means All notes)
   trash: false, // viewing the Trash (soft-deleted items)
   sort: 'date', // 'date' = by due date (overdue first), 'recent' = by last edited
   current: null, // note being edited
@@ -244,7 +245,10 @@ function passesFilters(note) {
   if (state.trash) return !!note.deleted && matchesText(note);
   if (note.deleted) return false;
 
-  if (state.notebook && !inNotebook(note, state.notebook)) return false;
+  // Scope: Inbox = uncategorized only; a notebook = that notebook (+ sub); All = no constraint.
+  if (state.inbox) { if (note.notebook) return false; }
+  else if (state.notebook && !inNotebook(note, state.notebook)) return false;
+
   if (!matchesFilter(note)) return false;
   for (const t of activeTagFilters()) {
     if (!noteHasTag(note, t)) return false;
@@ -312,11 +316,15 @@ function render() {
   }
 
   const items = sortItems(state.notes.filter(passesFilters));
-  const filtering = state.query || state.tags.length || state.notebook || state.filter !== 'all';
+  const filtering = state.query || state.tags.length || state.filter !== 'all';
 
   if (items.length === 0) {
-    const msg = state.trash ? 'Trash is empty.' : (filtering ? 'No matches.' : 'No notes yet.');
-    const hint = state.trash || filtering ? '' : 'Tap + to capture your first note.';
+    let msg, hint = '';
+    if (state.trash) msg = 'Trash is empty.';
+    else if (filtering) msg = 'No matches.';
+    else if (state.inbox) { msg = 'Inbox is empty.'; hint = 'New notes land here until you file them in a notebook.'; }
+    else if (state.notebook) msg = 'This notebook is empty.';
+    else { msg = 'No notes yet.'; hint = 'Tap + to capture your first note.'; }
     list.innerHTML = `<div class="empty"><p>${msg}</p><p class="muted">${hint}</p></div>`;
     return;
   }
@@ -723,22 +731,19 @@ async function bulkDelete() {
 function renderNotebookBar() {
   const bar = $('#notebookBar');
   if (!bar) return;
-  if (state.trash) {
-    bar.hidden = false;
-    bar.innerHTML =
-      `<span class="notebook-pill"><span class="nb-ico">&#128465;</span>` +
-      `<strong>Trash</strong>` +
-      `<button class="chip-x" aria-label="Leave trash">&times;</button></span>`;
-    bar.querySelector('.chip-x').addEventListener('click', () => { state.trash = false; render(); });
-    return;
-  }
-  if (!state.notebook) { bar.hidden = true; bar.innerHTML = ''; return; }
+  let icon, label, removable = false;
+  if (state.trash) { icon = '&#128465;'; label = 'Trash'; removable = true; }
+  else if (state.notebook) { icon = '&#128214;'; label = state.notebook; removable = true; }
+  else if (state.inbox) { icon = '&#128229;'; label = 'Inbox'; }
+  else { icon = '&#128194;'; label = 'All notes'; }
+
   bar.hidden = false;
   bar.innerHTML =
-    `<span class="notebook-pill"><span class="nb-ico">&#128214;</span>` +
-    `<strong>${escapeHtml(state.notebook)}</strong>` +
-    `<button class="chip-x" aria-label="Leave notebook">&times;</button></span>`;
-  bar.querySelector('.chip-x').addEventListener('click', () => selectNotebook(''));
+    `<span class="notebook-pill"><span class="nb-ico">${icon}</span><strong>${escapeHtml(label)}</strong>` +
+    (removable ? '<button class="chip-x" aria-label="Back to Inbox">&times;</button>' : '') +
+    '</span>';
+  const x = bar.querySelector('.chip-x');
+  if (x) x.addEventListener('click', selectInbox);
 }
 
 function openDrawer() {
@@ -777,14 +782,19 @@ function notebookCount(path) {
 }
 
 function notebookListHTML() {
-  const total = state.notes.filter((n) => !n.deleted).length;
-  const trashCount = state.notes.filter((n) => n.deleted).length;
-  const allActive = !state.notebook && !state.trash;
+  const live = state.notes.filter((n) => !n.deleted);
+  const total = live.length;
+  const inboxCount = live.filter((n) => !n.notebook).length;
+  const trashCount = state.notes.length - total;
+  const inboxActive = state.inbox && !state.trash;
+  const allActive = !state.inbox && !state.notebook && !state.trash;
   let html =
-    `<button class="notebook-item ${allActive ? 'active' : ''}" data-nb="">` +
-    `<span>All notes</span><span class="nb-count">${total}</span></button>`;
+    `<button class="notebook-item ${inboxActive ? 'active' : ''}" data-scope="inbox">` +
+    `<span>&#128229; Inbox</span><span class="nb-count">${inboxCount}</span></button>` +
+    `<button class="notebook-item ${allActive ? 'active' : ''}" data-scope="all">` +
+    `<span>&#128194; All notes</span><span class="nb-count">${total}</span></button>`;
   const row = (node) => {
-    const active = !state.trash && state.notebook && state.notebook.toLowerCase() === node.path.toLowerCase();
+    const active = !state.trash && !state.inbox && state.notebook && state.notebook.toLowerCase() === node.path.toLowerCase();
     html +=
       `<button class="notebook-item ${active ? 'active' : ''}" data-nb="${escapeAttr(node.path)}"` +
       ` style="padding-left:${12 + node.depth * 16}px">` +
@@ -808,6 +818,8 @@ function renderNotebooksUI() {
     el.querySelectorAll('.notebook-item').forEach((btn) => {
       btn.addEventListener('click', () => {
         if (btn.dataset.trash) selectTrash();
+        else if (btn.dataset.scope === 'inbox') selectInbox();
+        else if (btn.dataset.scope === 'all') selectAll();
         else selectNotebook(btn.dataset.nb);
       });
       // Drop a dragged card here to file it (or trash it).
@@ -833,16 +845,39 @@ async function dropNoteOnTarget(noteId, btn) {
   if (btn.dataset.trash) {
     await store.softDeleteNote(note);
     setStatus('Moved to Trash');
+  } else if (btn.dataset.scope === 'all') {
+    return; // "All notes" isn't a destination
+  } else if (btn.dataset.scope === 'inbox') {
+    note.notebook = '';
+    await store.saveNote(note);
+    setStatus('Moved to Inbox');
   } else {
     note.notebook = btn.dataset.nb || '';
     await store.saveNote(note);
-    setStatus(note.notebook ? `Filed in ${note.notebook}` : 'Removed from notebook');
+    setStatus(note.notebook ? `Filed in ${note.notebook}` : 'Moved to Inbox');
   }
   state.notes = await store.cachedNotes();
   render();
 }
 
+function selectInbox() {
+  state.inbox = true;
+  state.notebook = '';
+  state.trash = false;
+  closeDrawer();
+  render();
+}
+
+function selectAll() {
+  state.inbox = false;
+  state.notebook = '';
+  state.trash = false;
+  closeDrawer();
+  render();
+}
+
 function selectNotebook(name) {
+  state.inbox = false;
   state.notebook = name || '';
   state.trash = false;
   closeDrawer();
@@ -851,13 +886,16 @@ function selectNotebook(name) {
 
 function selectTrash() {
   state.trash = true;
+  state.inbox = false;
   state.notebook = '';
   closeDrawer();
   render();
 }
 
-// Jump to the default "all notes" inbox view (used when importing).
-function goToInbox() {
+// Reset to the All-notes view (used when importing, so every imported item is
+// visible regardless of which notebook it landed in).
+function goToAllNotes() {
+  state.inbox = false;
   state.notebook = '';
   state.trash = false;
   state.filter = 'all';
@@ -1369,7 +1407,7 @@ async function handleImportFiles(files) {
   // Jump to the inbox immediately so the progress counter is visible over the
   // list (and close Settings/drawer if the import was launched from there).
   if (overlay) closeOverlayByUser();
-  goToInbox();
+  goToAllNotes();
 
   if (!isSignedIn()) {
     try { await getToken({ interactive: true }); }
