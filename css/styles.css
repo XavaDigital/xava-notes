@@ -102,6 +102,13 @@ body {
 .card.overdue .card-front { box-shadow: inset 4px 0 0 var(--danger); }
 .card.done .card-title { text-decoration: line-through; }
 .card-main { display: flex; gap: 12px; align-items: flex-start; }
+.drag-handle {
+  display: none; flex: none; align-self: center;
+  color: var(--muted); cursor: grab; touch-action: none; user-select: none;
+  font-size: 16px; letter-spacing: -4px; padding: 4px 2px; margin: -4px 0;
+}
+.list.manual .drag-handle { display: inline-flex; }
+.card.reordering { opacity: .9; box-shadow: 0 8px 24px rgba(0,0,0,.5); position: relative; z-index: 5; }
 .card-text { flex: 1; min-width: 0; }
 .card-title { font-weight: 600; word-break: break-word; }
 .card-preview {

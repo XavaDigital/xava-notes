@@ -264,8 +264,19 @@ function byRecent(a, b) {
   return (b.updated || '').localeCompare(a.updated || '');
 }
 
+// Manual order: explicit `order` if set, otherwise fall back to recency so
+// never-reordered notes still have a stable position (newest first).
+function effectiveOrder(note) {
+  if (note.order) return note.order;
+  return -(Date.parse(note.updated || note.created) || 0);
+}
+function byManual(a, b) {
+  return effectiveOrder(a) - effectiveOrder(b) || (b.updated || '').localeCompare(a.updated || '');
+}
+
 function sortItems(items) {
-  return [...items].sort(state.sort === 'date' ? byDueDate : byRecent);
+  const cmp = state.sort === 'date' ? byDueDate : state.sort === 'manual' ? byManual : byRecent;
+  return [...items].sort(cmp);
 }
 
 function sectionHeader(label, extraClass = '') {
@@ -284,7 +295,11 @@ function render() {
   if (!list) return;
 
   const sortBtn = $('#sortBtn');
-  if (sortBtn) sortBtn.classList.toggle('active', state.sort === 'date');
+  if (sortBtn) {
+    sortBtn.classList.toggle('active', state.sort !== 'date');
+    sortBtn.title = `Sort: ${{ date: 'due date', recent: 'recent', manual: 'manual (drag to reorder)' }[state.sort]}`;
+  }
+  list.classList.toggle('manual', state.sort === 'manual' && !state.trash);
 
   const pending = state.notes.filter((n) => n.unsynced).length;
   const syncBtn = $('#syncBtn');
@@ -384,6 +399,7 @@ function renderCard(note) {
     <div class="card-actions"><button class="card-edit" aria-label="Edit note">&#9998; Edit</button></div>
     <div class="card-front">
       <div class="card-main">
+        <span class="drag-handle" aria-label="Reorder" title="Drag to reorder">&#8942;&#8942;</span>
         ${isTask ? `<button class="check ${note.done ? 'checked' : ''}" aria-label="Toggle done"></button>` : '<span class="dot"></span>'}
         <div class="card-text">
           <div class="card-title">${escapeHtml(note.title || notePreview(note) || 'Untitled')}</div>
@@ -431,15 +447,20 @@ function renderCard(note) {
   const nbChip = card.querySelector('.nb-chip');
   if (nbChip) nbChip.addEventListener('click', (e) => { e.stopPropagation(); selectNotebook(nbChip.dataset.nb); });
 
-  // Drag the card onto a notebook (desktop) to file it there.
-  card.draggable = true;
-  card.addEventListener('dragstart', (e) => {
-    draggingNoteId = note.id;
-    e.dataTransfer.setData('text/plain', note.id);
-    e.dataTransfer.effectAllowed = 'move';
-    card.classList.add('dragging');
-  });
-  card.addEventListener('dragend', () => { draggingNoteId = null; card.classList.remove('dragging'); });
+  // In manual sort, the drag handle reorders; otherwise the whole card drags
+  // onto a notebook (desktop) to file it there.
+  if (state.sort === 'manual' && !state.trash) {
+    wireReorder(card, note);
+  } else {
+    card.draggable = true;
+    card.addEventListener('dragstart', (e) => {
+      draggingNoteId = note.id;
+      e.dataTransfer.setData('text/plain', note.id);
+      e.dataTransfer.effectAllowed = 'move';
+      card.classList.add('dragging');
+    });
+    card.addEventListener('dragend', () => { draggingNoteId = null; card.classList.remove('dragging'); });
+  }
 
   // Swipe-to-reveal the Edit action (touch). Edit opens straight in edit mode.
   card.querySelector('.card-edit').addEventListener('click', (e) => {
@@ -468,6 +489,7 @@ function wireSwipe(card) {
 
   card.addEventListener('touchstart', (e) => {
     if (state.selectMode) return;
+    if (e.target.closest('.drag-handle')) return; // handle is for reordering
     const t = e.touches[0];
     startX = t.clientX; startY = t.clientY; dx = 0; active = false;
   }, { passive: true });
@@ -496,6 +518,70 @@ function wireSwipe(card) {
     if (active) card.classList.toggle('swiped', dx < -SWIPE_W / 2);
     startX = null; active = false;
   });
+}
+
+// Pointer-based drag-to-reorder via the card's handle (works on touch + mouse).
+let reorder = null;
+function wireReorder(card, note) {
+  const handle = card.querySelector('.drag-handle');
+  if (!handle) return;
+  handle.addEventListener('pointerdown', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    closeSwipes(null);
+    card.classList.add('reordering');
+    reorder = { card, note, pointerId: e.pointerId };
+    try { handle.setPointerCapture(e.pointerId); } catch {}
+    handle.addEventListener('pointermove', onReorderMove);
+    handle.addEventListener('pointerup', onReorderUp, { once: true });
+    handle.addEventListener('pointercancel', onReorderUp, { once: true });
+  });
+}
+
+function onReorderMove(e) {
+  if (!reorder) return;
+  const { card } = reorder;
+  const list = card.parentElement;
+  if (!list) return;
+  const y = e.clientY;
+  // Auto-scroll near the edges of the viewport.
+  if (y < 90) window.scrollBy(0, -12);
+  else if (y > window.innerHeight - 90) window.scrollBy(0, 12);
+
+  const siblings = [...list.querySelectorAll('.card:not(.reordering)')];
+  let placed = false;
+  for (const sib of siblings) {
+    const r = sib.getBoundingClientRect();
+    if (y < r.top + r.height / 2) { list.insertBefore(card, sib); placed = true; break; }
+  }
+  if (!placed) list.appendChild(card);
+}
+
+async function onReorderUp() {
+  if (!reorder) return;
+  const { card, note } = reorder;
+  reorder = null;
+  card.classList.remove('reordering');
+  const handle = card.querySelector('.drag-handle');
+  if (handle) handle.removeEventListener('pointermove', onReorderMove);
+
+  // Compute a fractional order between the new DOM neighbours.
+  const list = card.parentElement;
+  const cards = [...list.querySelectorAll('.card')];
+  const idx = cards.indexOf(card);
+  const prevEl = cards[idx - 1], nextEl = cards[idx + 1];
+  const prevNote = prevEl && state.notes.find((n) => n.id === prevEl.dataset.id);
+  const nextNote = nextEl && state.notes.find((n) => n.id === nextEl.dataset.id);
+  const ka = prevNote ? effectiveOrder(prevNote) : null;
+  const kb = nextNote ? effectiveOrder(nextNote) : null;
+  if (ka == null && kb == null) note.order = effectiveOrder(note);
+  else if (ka == null) note.order = kb - 1000;
+  else if (kb == null) note.order = ka + 1000;
+  else note.order = (ka + kb) / 2;
+
+  await store.saveNote(note);
+  state.notes = await store.cachedNotes();
+  render();
 }
 
 async function trashItemFlow(note) {
@@ -1396,8 +1482,10 @@ function wireEvents() {
   });
   $('#syncBtn').addEventListener('click', refresh);
   $('#sortBtn').addEventListener('click', () => {
-    state.sort = state.sort === 'date' ? 'recent' : 'date';
-    setStatus(state.sort === 'date' ? 'Sorted by due date' : 'Sorted by most recent');
+    const cycle = { date: 'recent', recent: 'manual', manual: 'date' };
+    state.sort = cycle[state.sort] || 'date';
+    const labels = { date: 'due date', recent: 'most recent', manual: 'manual order (drag to reorder)' };
+    setStatus(`Sorted by ${labels[state.sort]}`);
     render();
   });
   $('#selectBtn').addEventListener('click', () => toggleSelectMode(!state.selectMode));
