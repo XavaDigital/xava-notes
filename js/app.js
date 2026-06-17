@@ -62,8 +62,17 @@ function allNotebooks() {
 
 // --- Boot ---------------------------------------------------------------
 
+// Restore the last-viewed scope (Inbox / All / notebook / Trash) across reloads.
+function restoreView() {
+  try {
+    const v = JSON.parse(localStorage.getItem('xn.view') || 'null');
+    if (v) { state.inbox = !!v.inbox; state.notebook = v.notebook || ''; state.trash = !!v.trash; }
+  } catch {}
+}
+
 async function boot() {
   registerServiceWorker();
+  restoreView();
 
   // Show cached notes ASAP — before anything that could throw — so they always
   // appear even if later initialization hits a problem.
@@ -291,6 +300,8 @@ function sectionHeader(label, extraClass = '') {
 }
 
 function render() {
+  // Remember the current view so a refresh stays put.
+  try { localStorage.setItem('xn.view', JSON.stringify({ inbox: state.inbox, notebook: state.notebook, trash: state.trash })); } catch {}
   try { renderTagBar(); } catch (e) { console.warn('Xava Notes: tag bar render failed', e); }
   try { renderNotebookBar(); } catch (e) { console.warn('Xava Notes: notebook bar failed', e); }
   try { renderNotebooksUI(); } catch (e) { console.warn('Xava Notes: notebooks UI failed', e); }
@@ -458,10 +469,10 @@ function renderCard(note) {
   const nbChip = card.querySelector('.nb-chip');
   if (nbChip) nbChip.addEventListener('click', (e) => { e.stopPropagation(); selectNotebook(nbChip.dataset.nb); });
 
-  // In manual sort, the drag handle reorders; otherwise the whole card drags
-  // onto a notebook (desktop) to file it there.
+  // In manual sort, the handle (desktop) reorders; otherwise the whole card
+  // drags onto a notebook (desktop) to file it there.
   if (state.sort === 'manual' && !state.trash) {
-    wireReorder(card, note);
+    wireReorderHandle(card, note);
   } else {
     card.draggable = true;
     card.addEventListener('dragstart', (e) => {
@@ -473,15 +484,18 @@ function renderCard(note) {
     card.addEventListener('dragend', () => { draggingNoteId = null; card.classList.remove('dragging'); });
   }
 
-  // Swipe-to-reveal the Edit action (touch). Edit opens straight in edit mode.
+  // Edit action (revealed by swipe) opens straight in edit mode.
   card.querySelector('.card-edit').addEventListener('click', (e) => {
     e.stopPropagation();
     card.classList.remove('swiped');
     openEditor(note, { edit: true });
   });
-  if (!state.trash) wireSwipe(card);
+
+  // Touch gestures: long-press reorder (manual) + swipe-to-edit.
+  if (!state.trash) wireCardGestures(card, note);
 
   card.querySelector('.card-text').addEventListener('click', () => {
+    if (suppressCardClick) { suppressCardClick = false; return; }
     if (card.classList.contains('swiped')) { card.classList.remove('swiped'); return; }
     if (state.trash) trashItemFlow(note);
     else openEditor(note);
@@ -494,91 +508,39 @@ function closeSwipes(except) {
   document.querySelectorAll('.card.swiped').forEach((c) => { if (c !== except) c.classList.remove('swiped'); });
 }
 
-function wireSwipe(card) {
-  const front = card.querySelector('.card-front');
-  let startX = null, startY = null, dx = 0, active = false;
-
-  card.addEventListener('touchstart', (e) => {
-    if (state.selectMode) return;
-    if (e.target.closest('.drag-handle')) return; // handle is for reordering
-    const t = e.touches[0];
-    startX = t.clientX; startY = t.clientY; dx = 0; active = false;
-  }, { passive: true });
-
-  card.addEventListener('touchmove', (e) => {
-    if (startX == null) return;
-    const t = e.touches[0];
-    const mx = t.clientX - startX;
-    const my = t.clientY - startY;
-    if (!active) {
-      if (Math.abs(mx) > 8 && Math.abs(mx) > Math.abs(my)) { active = true; closeSwipes(card); }
-      else if (Math.abs(my) > 8) { startX = null; return; } // vertical scroll wins
-    }
-    if (active) {
-      e.preventDefault();
-      // allow left swipe to open; if already open, allow right swipe to close
-      const base = card.classList.contains('swiped') ? -SWIPE_W : 0;
-      dx = Math.max(-SWIPE_W, Math.min(0, base + mx));
-      front.style.transform = `translateX(${dx}px)`;
-    }
-  }, { passive: false });
-
-  card.addEventListener('touchend', () => {
-    if (startX == null) return;
-    front.style.transform = '';
-    if (active) card.classList.toggle('swiped', dx < -SWIPE_W / 2);
-    startX = null; active = false;
-  });
-}
-
-// Pointer-based drag-to-reorder via the card's handle (works on touch + mouse).
-// Drag-to-reorder. The pointer is captured on the handle (so the gesture keeps
-// tracking and the page doesn't scroll). The card visually follows the finger
-// via transform while staying in place in the DOM (moving the captured element
-// would drop the capture); a drop-indicator line shows where it will land, and
-// the actual reorder happens on release.
+// --- Drag-to-reorder (shared by the desktop handle and mobile long-press) ----
+// The card follows the finger via transform while staying put in the DOM (moving
+// the captured element would drop pointer capture); a drop-indicator line shows
+// where it will land, and the reorder is committed on release.
 let reorder = null;
-function wireReorder(card, note) {
-  const handle = card.querySelector('.drag-handle');
-  if (!handle) return;
-  handle.addEventListener('pointerdown', (e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    closeSwipes(null);
-    try { handle.setPointerCapture(e.pointerId); } catch {}
-    reorder = { card, note, handle, list: card.parentElement, startY: e.clientY, target: null };
-    card.classList.add('reordering');
-    handle.addEventListener('pointermove', onReorderMove);
-    handle.addEventListener('pointerup', endReorder, { once: true });
-    handle.addEventListener('pointercancel', endReorder, { once: true });
-  });
-}
+let suppressCardClick = false; // a drag/swipe just happened — don't treat as a tap
 
 function dropIndicator() {
   let ind = document.getElementById('dropIndicator');
-  if (!ind) {
-    ind = document.createElement('div');
-    ind.id = 'dropIndicator';
-    ind.className = 'drop-indicator';
-  }
+  if (!ind) { ind = document.createElement('div'); ind.id = 'dropIndicator'; ind.className = 'drop-indicator'; }
   return ind;
 }
 
-function onReorderMove(e) {
+function beginReorder(card, note, startY) {
+  closeSwipes(null);
+  reorder = { card, note, list: card.parentElement, startY, target: null, moved: false };
+  card.classList.add('reordering');
+  if (navigator.vibrate) { try { navigator.vibrate(20); } catch {} }
+}
+
+function updateReorder(clientY) {
   if (!reorder) return;
   const { card, list, startY } = reorder;
-  card.style.transform = `translateY(${e.clientY - startY}px)`;
+  reorder.moved = true;
+  card.style.transform = `translateY(${clientY - startY}px)`;
+  if (clientY < 80) window.scrollBy(0, -12);
+  else if (clientY > window.innerHeight - 80) window.scrollBy(0, 12);
 
-  const y = e.clientY;
-  if (y < 80) window.scrollBy(0, -10);
-  else if (y > window.innerHeight - 80) window.scrollBy(0, 10);
-
-  // Find which card we're hovering over and place the indicator there.
   const siblings = [...list.children].filter((el) => el.classList.contains('card') && el !== card);
   let target = null;
   for (const sib of siblings) {
     const r = sib.getBoundingClientRect();
-    if (y < r.top + r.height / 2) { target = sib; break; }
+    if (clientY < r.top + r.height / 2) { target = sib; break; }
   }
   reorder.target = target;
   const ind = dropIndicator();
@@ -586,32 +548,101 @@ function onReorderMove(e) {
   else list.appendChild(ind);
 }
 
-async function endReorder() {
+async function finishReorder() {
   if (!reorder) return;
-  const { card, note, list, target, handle } = reorder;
+  const r = reorder;
   reorder = null;
-  handle.removeEventListener('pointermove', onReorderMove);
-  card.classList.remove('reordering');
-  card.style.transform = '';
+  r.card.classList.remove('reordering');
+  r.card.style.transform = '';
   document.getElementById('dropIndicator')?.remove();
+  if (!r.moved) return; // picked up but not dragged — leave as-is
 
-  // Move the card to its new position, then derive a fractional order.
-  if (target) list.insertBefore(card, target);
-  else list.appendChild(card);
-  const cards = [...list.children].filter((el) => el.classList.contains('card'));
-  const idx = cards.indexOf(card);
+  if (r.target) r.list.insertBefore(r.card, r.target);
+  else r.list.appendChild(r.card);
+  const cards = [...r.list.children].filter((el) => el.classList.contains('card'));
+  const idx = cards.indexOf(r.card);
   const prevNote = cards[idx - 1] && state.notes.find((n) => n.id === cards[idx - 1].dataset.id);
   const nextNote = cards[idx + 1] && state.notes.find((n) => n.id === cards[idx + 1].dataset.id);
   const ka = prevNote ? effectiveOrder(prevNote) : null;
   const kb = nextNote ? effectiveOrder(nextNote) : null;
-  if (ka == null && kb == null) note.order = effectiveOrder(note);
-  else if (ka == null) note.order = kb - 1000;
-  else if (kb == null) note.order = ka + 1000;
-  else note.order = (ka + kb) / 2;
+  if (ka == null && kb == null) r.note.order = effectiveOrder(r.note);
+  else if (ka == null) r.note.order = kb - 1000;
+  else if (kb == null) r.note.order = ka + 1000;
+  else r.note.order = (ka + kb) / 2;
 
-  await store.saveNote(note);
+  await store.saveNote(r.note);
   state.notes = await store.cachedNotes();
   render();
+}
+
+// Desktop / handle: pointer drag.
+function wireReorderHandle(card, note) {
+  const handle = card.querySelector('.drag-handle');
+  if (!handle) return;
+  handle.addEventListener('pointerdown', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    try { handle.setPointerCapture(e.pointerId); } catch {}
+    beginReorder(card, note, e.clientY);
+    const move = (ev) => updateReorder(ev.clientY);
+    const up = () => { handle.removeEventListener('pointermove', move); finishReorder(); };
+    handle.addEventListener('pointermove', move);
+    handle.addEventListener('pointerup', up, { once: true });
+    handle.addEventListener('pointercancel', up, { once: true });
+  });
+}
+
+// Touch gestures on the card body: long-press to reorder (manual sort), swipe to
+// reveal Edit, tap to open (via the click handler). Vertical drag scrolls.
+function wireCardGestures(card, note) {
+  const front = card.querySelector('.card-front');
+  let startX = null, startY = null, dx = 0, mode = null, lastY = 0, lpTimer = null;
+  const clearLP = () => { if (lpTimer) { clearTimeout(lpTimer); lpTimer = null; } };
+
+  card.addEventListener('touchstart', (e) => {
+    if (state.selectMode) return;
+    if (e.target.closest('.drag-handle, .check, .tag, .nb-chip, .card-edit')) return;
+    const t = e.touches[0];
+    startX = t.clientX; startY = t.clientY; lastY = t.clientY; dx = 0; mode = null;
+    suppressCardClick = false;
+    if (state.sort === 'manual' && !state.trash) {
+      clearLP();
+      lpTimer = setTimeout(() => {
+        if (mode === null) { mode = 'reorder'; beginReorder(card, note, lastY); }
+      }, 450); // long-press anywhere on the card picks it up for reordering
+    }
+  }, { passive: true });
+
+  card.addEventListener('touchmove', (e) => {
+    if (startX == null) return;
+    const t = e.touches[0]; lastY = t.clientY;
+    const mx = t.clientX - startX, my = t.clientY - startY;
+    if (mode === 'reorder') { e.preventDefault(); updateReorder(t.clientY); return; }
+    if (mode === null) {
+      if (Math.abs(mx) > 8 && Math.abs(mx) > Math.abs(my)) { mode = 'swipe'; clearLP(); closeSwipes(card); }
+      else if (Math.abs(my) > 8) { mode = 'scroll'; clearLP(); } // let the page scroll
+    }
+    if (mode === 'swipe') {
+      e.preventDefault();
+      const base = card.classList.contains('swiped') ? -SWIPE_W : 0;
+      dx = Math.max(-SWIPE_W, Math.min(0, base + mx));
+      front.style.transform = `translateX(${dx}px)`;
+    }
+  }, { passive: false });
+
+  const end = () => {
+    clearLP();
+    if (startX == null) return;
+    if (mode === 'reorder') { suppressCardClick = true; finishReorder(); }
+    else if (mode === 'swipe') {
+      suppressCardClick = true;
+      front.style.transform = '';
+      card.classList.toggle('swiped', dx < -SWIPE_W / 2);
+    }
+    startX = null; mode = null;
+  };
+  card.addEventListener('touchend', end);
+  card.addEventListener('touchcancel', end);
 }
 
 async function trashItemFlow(note) {
