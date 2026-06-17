@@ -27,10 +27,6 @@
         <input id="searchInput" type="search" placeholder="Search&hellip; (try #tag)"
                autocomplete="off" autocapitalize="off" />
       </div>
-      <button id="selectBtn" class="icon-btn" title="Select multiple" aria-label="Select">&#9745;</button>
-      <button id="sortBtn" class="sort-btn" aria-label="Change sort order">
-        <span class="sort-ico">&#8645;</span><span id="sortLabel">Due date</span>
-      </button>
       <button id="syncBtn" class="icon-btn" title="Sync now" aria-label="Sync">&#8635;</button>
     </header>
 
@@ -49,6 +45,12 @@
 
     <!-- Tag bar: one-tap filtering by tag (multi-select) -->
     <nav id="tagBar" class="tag-bar" hidden></nav>
+
+    <!-- Toolbar just above the list -->
+    <div class="list-toolbar">
+      <button id="selectBtn" class="toolbar-pill" aria-label="Select multiple">&#9745; Select</button>
+      <button id="sortBtn" class="toolbar-pill" aria-label="Change sort order">&#8645; <span id="sortLabel">Due date</span></button>
+    </div>
 
     <!-- Main list -->
     <main id="list" class="list" aria-live="polite"></main>
