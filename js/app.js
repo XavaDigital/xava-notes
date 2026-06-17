@@ -1219,9 +1219,8 @@ async function saveEditor() {
     closeEditor();
     return;
   }
-  const btn = $('#editorSave');
-  btn.classList.add('loading');
-  btn.disabled = true;
+  const saveBtns = $$('.btn-save');
+  saveBtns.forEach((b) => { b.classList.add('loading'); b.disabled = true; });
   setStatus('Saving…');
   try {
     const res = await store.saveNote(n, { onConflict: conflictPrompt });
@@ -1237,8 +1236,7 @@ async function saveEditor() {
   } catch (err) {
     setStatus(`Save failed: ${err.message}`, true);
   } finally {
-    btn.classList.remove('loading');
-    btn.disabled = false;
+    saveBtns.forEach((b) => { b.classList.remove('loading'); b.disabled = false; });
   }
 }
 
@@ -1427,8 +1425,8 @@ function wireEvents() {
 
   // Editor
   $('#editorBack').addEventListener('click', closeEditor);
-  $('#editorEdit').addEventListener('click', () => { setEditing(true); $('#bodyEditor').focus(); });
-  $('#editorSave').addEventListener('click', saveEditor);
+  $$('.btn-edit').forEach((b) => b.addEventListener('click', () => { setEditing(true); $('#bodyEditor').focus(); }));
+  $$('.btn-save').forEach((b) => b.addEventListener('click', saveEditor));
   $('#editorDelete').addEventListener('click', deleteEditor);
   $('#typeNote').addEventListener('click', () => setType('note'));
   $('#typeTask').addEventListener('click', () => setType('task'));

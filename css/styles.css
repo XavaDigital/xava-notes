@@ -354,8 +354,9 @@ body {
   padding: calc(10px + var(--safe-top)) 16px calc(28px + var(--safe-bottom));
   display: flex; flex-direction: column; gap: 14px;
 }
-.sheet-head { display: flex; align-items: center; justify-content: space-between; }
+.sheet-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .sheet-head h2 { font-size: 18px; margin: 0; }
+.sheet-head .primary-btn { padding: 8px 16px; font-size: 14px; }
 
 .type-toggle { display: flex; background: var(--surface); border: 1px solid var(--border); border-radius: 999px; padding: 3px; }
 .type-opt {
@@ -520,8 +521,8 @@ body {
 .foot-actions { display: flex; align-items: center; gap: 8px; }
 
 /* Read-only editor: hide all editing affordances, show Edit instead of Save */
-.sheet:not(.readonly) #editorEdit { display: none; }
-.sheet.readonly #editorSave { display: none; }
+.sheet:not(.readonly) .btn-edit { display: none; }
+.sheet.readonly .btn-save { display: none; }
 .sheet.readonly .format-bar,
 .sheet.readonly #mdToggle,
 .sheet.readonly #addSubtask,
@@ -537,7 +538,7 @@ body {
 .sheet.readonly #titleInput,
 .sheet.readonly .tag-picker { pointer-events: none; }
 .sheet.readonly .tag-picker { border-color: transparent; padding-left: 0; }
-.editor-meta { color: var(--muted); font-size: 13px; }
+.editor-meta { color: var(--muted); font-size: 13px; flex: 0 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .primary-btn {
   padding: 11px 22px; background: var(--accent); color: #fff;
