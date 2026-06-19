@@ -11,21 +11,36 @@ const FILES = 'https://www.googleapis.com/drive/v3/files';
 const UPLOAD = 'https://www.googleapis.com/upload/drive/v3/files';
 const FOLDER_MIME = 'application/vnd.google-apps.folder';
 
-async function authFetch(url, options = {}, retry = true) {
+async function authFetch(url, options = {}, retry = true, attempt = 0) {
   const token = await getToken();
-  const res = await fetch(url, {
-    ...options,
-    headers: {
-      Authorization: `Bearer ${token}`,
-      ...(options.headers || {}),
-    },
-  });
+  let res;
+  try {
+    res = await fetch(url, {
+      ...options,
+      headers: {
+        Authorization: `Bearer ${token}`,
+        ...(options.headers || {}),
+      },
+    });
+  } catch (err) {
+    // Network hiccup: back off and retry a few times.
+    if (attempt < 3) {
+      await sleep(400 * 2 ** attempt);
+      return authFetch(url, options, retry, attempt + 1);
+    }
+    throw err;
+  }
   if (res.status === 401 && retry) {
     // The server rejected the token even if our local expiry said it was fine.
     // Drop it and fetch a genuinely fresh one, then retry once.
     invalidateToken();
     await getToken({ interactive: true });
-    return authFetch(url, options, false);
+    return authFetch(url, options, false, attempt);
+  }
+  // Rate limiting / transient server errors: back off and retry.
+  if ((res.status === 429 || res.status === 403 || res.status >= 500) && attempt < 4) {
+    await sleep(500 * 2 ** attempt + Math.random() * 300);
+    return authFetch(url, options, retry, attempt + 1);
   }
   if (!res.ok) {
     const text = await res.text().catch(() => '');
@@ -37,6 +52,8 @@ async function authFetch(url, options = {}, retry = true) {
   }
   return res;
 }
+
+function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
 
 let cachedFolderId = null;
 let cachedAttachmentsFolderId = null;

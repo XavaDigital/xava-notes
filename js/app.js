@@ -1553,7 +1553,16 @@ function clipboardLines(e) {
 
 // Create one task per non-empty line, in the current view's notebook.
 async function createTasksFromLines(lines) {
-  const clean = lines.map(stripListMarker).filter(Boolean);
+  // Dedupe exact-duplicate lines within this batch (keep first).
+  const seen = new Set();
+  const clean = [];
+  for (const raw of lines.map(stripListMarker)) {
+    if (!raw) continue;
+    const key = raw.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    clean.push(raw);
+  }
   if (!clean.length) return;
   let saved = 0;
   for (const text of clean) {
@@ -1567,6 +1576,8 @@ async function createTasksFromLines(lines) {
   state.notes = await store.cachedNotes();
   render();
   setStatus(clean.length > 1 ? `Added ${saved} tasks` : '', clean.length > 1);
+  // Recover any that couldn't reach Drive (e.g. a transient rate-limit).
+  setTimeout(quickSync, 1500);
 }
 
 function wireQuickAdd() {
