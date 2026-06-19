@@ -368,6 +368,8 @@ function render() {
     if (lbl) lbl.textContent = labels[state.sort];
   }
   list.classList.toggle('manual', state.sort === 'manual' && !state.trash);
+  const quickBar = $('#quickAddBar');
+  if (quickBar) quickBar.hidden = state.trash;
 
   const pending = state.notes.filter((n) => n.unsynced).length;
   const syncBtn = $('#syncBtn');
@@ -1522,6 +1524,48 @@ async function handleAttachFiles(files) {
   setStatus('');
 }
 
+// Strip a leading bullet/number marker from a line.
+function stripListMarker(line) {
+  return line.replace(/^\s*([-*•‣◦]|\d+[.)])\s+/, '').trim();
+}
+
+// Create one task per non-empty line, in the current view's notebook.
+async function createTasksFromLines(lines) {
+  const clean = lines.map(stripListMarker).filter(Boolean);
+  if (!clean.length) return;
+  let saved = 0;
+  for (const text of clean) {
+    const n = emptyNote('task');
+    n.title = text;
+    if (state.notebook && !state.inbox && !state.trash) n.notebook = state.notebook;
+    if (clean.length > 1) setStatus(`Adding ${saved + 1}/${clean.length}…`, true, true);
+    await store.saveNote(n);
+    saved++;
+  }
+  state.notes = await store.cachedNotes();
+  render();
+  setStatus(clean.length > 1 ? `Added ${saved} tasks` : '', clean.length > 1);
+}
+
+function wireQuickAdd() {
+  const input = $('#quickAdd');
+  if (!input) return;
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      const v = input.value.trim();
+      if (v) { createTasksFromLines([v]); input.value = ''; }
+    }
+  });
+  input.addEventListener('paste', (e) => {
+    const text = (e.clipboardData || window.clipboardData)?.getData('text') || '';
+    if (!/[\r\n]/.test(text)) return; // single line — type then Enter
+    e.preventDefault();
+    createTasksFromLines(text.split(/\r?\n/));
+    input.value = '';
+  });
+}
+
 // --- Tag picker ---------------------------------------------------------
 
 function normalizeTag(raw) {
@@ -1928,6 +1972,7 @@ function wireEvents() {
     await handleImportFiles(files);
   });
   wireDragDrop();
+  wireQuickAdd();
 
   window.addEventListener('online', refresh);
   window.addEventListener('offline', () => setStatus('Offline — changes will sync later', true));
