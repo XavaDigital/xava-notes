@@ -1400,13 +1400,10 @@ function renderSubtasks(note) {
     const input = li.querySelector('.subtask-text');
     input.addEventListener('input', (e) => { st.text = e.target.value; });
     // Paste or drop a bullet/numbered list to add many subtasks at once.
-    input.addEventListener('paste', (e) => {
-      const text = (e.clipboardData || window.clipboardData)?.getData('text') || '';
-      handleListInput(note, st, text, e);
-    });
+    input.addEventListener('paste', (e) => addSubtasksFromLines(note, st, clipboardLines(e), e));
     input.addEventListener('drop', (e) => {
-      const text = e.dataTransfer?.getData('text') || '';
-      handleListInput(note, st, text, e);
+      const lines = (e.dataTransfer?.getData('text') || '').split(LINE_SEP).map((l) => l.trim()).filter(Boolean);
+      addSubtasksFromLines(note, st, lines, e);
     });
     li.querySelector('.remove').addEventListener('click', () => {
       note.subtasks.splice(i, 1);
@@ -1416,20 +1413,17 @@ function renderSubtasks(note) {
   });
 }
 
-// Split a pasted/dropped multi-line list into subtasks (strips bullet/number
-// markers). Single-line input is left to the default behaviour.
-function handleListInput(note, st, text, e) {
-  if (!text || !/[\r\n]/.test(text)) return; // single line — normal paste/drop
-  const lines = text.split(/\r?\n/)
-    .map((l) => l.replace(/^\s*([-*•‣◦]|\d+[.)])\s+/, '').trim())
-    .filter(Boolean);
-  if (!lines.length) return;
+// Turn pasted/dropped list lines into subtasks (one per line). Single-line input
+// is left to the default behaviour.
+function addSubtasksFromLines(note, st, rawLines, e) {
+  const lines = (rawLines || []).map(stripListMarker).filter(Boolean);
+  if (lines.length <= 1) return; // single line — normal paste/drop
   e.preventDefault();
   st.text = lines[0];
   const idx = note.subtasks.indexOf(st);
   const rest = lines.slice(1).map((t) => ({ text: t, done: false }));
   note.subtasks.splice(idx + 1, 0, ...rest);
-  setType('task'); // ensure subtasks are shown
+  setType('task');
   renderSubtasks(note);
 }
 
@@ -1529,6 +1523,34 @@ function stripListMarker(line) {
   return line.replace(/^\s*([-*•‣◦]|\d+[.)])\s+/, '').trim();
 }
 
+const LINE_SEP = /\r\n|\r|\n|\u2028|\u2029/;
+
+// Extract list lines from a paste event. Prefers HTML (so a styled bullet list,
+// whose plain text may have no line breaks, still splits): list items, then
+// block elements / <br>. Falls back to plain text split on any line separator.
+function clipboardLines(e) {
+  const dt = e.clipboardData || window.clipboardData;
+  if (!dt) return [];
+  const html = dt.getData && dt.getData('text/html');
+  if (html && typeof DOMParser !== 'undefined') {
+    try {
+      const doc = new DOMParser().parseFromString(html, 'text/html');
+      const lis = [...doc.querySelectorAll('li')]
+        .map((li) => li.textContent.replace(/\s+/g, ' ').trim())
+        .filter(Boolean);
+      if (lis.length > 1) return lis;
+      const body = doc.body;
+      if (body) {
+        body.querySelectorAll('br').forEach((br) => br.replaceWith('\n'));
+        body.querySelectorAll('p, div, tr, h1, h2, h3').forEach((el) => el.append('\n'));
+        const lines = (body.textContent || '').split(LINE_SEP).map((l) => l.trim()).filter(Boolean);
+        if (lines.length > 1) return lines;
+      }
+    } catch {}
+  }
+  return (dt.getData('text') || '').split(LINE_SEP).map((l) => l.trim()).filter(Boolean);
+}
+
 // Create one task per non-empty line, in the current view's notebook.
 async function createTasksFromLines(lines) {
   const clean = lines.map(stripListMarker).filter(Boolean);
@@ -1558,10 +1580,10 @@ function wireQuickAdd() {
     }
   });
   input.addEventListener('paste', (e) => {
-    const text = (e.clipboardData || window.clipboardData)?.getData('text') || '';
-    if (!/[\r\n]/.test(text)) return; // single line — type then Enter
+    const lines = clipboardLines(e);
+    if (lines.length <= 1) return; // single line — type then Enter
     e.preventDefault();
-    createTasksFromLines(text.split(/\r?\n/));
+    createTasksFromLines(lines);
     input.value = '';
   });
 }
