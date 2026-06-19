@@ -138,6 +138,19 @@ body {
   box-shadow: 0 10px 28px rgba(0,0,0,.55); border-color: var(--accent);
 }
 .drop-indicator { height: 3px; background: var(--accent); border-radius: 2px; margin: 1px 6px; }
+
+/* Inline subtasks on the list */
+.subtasks-toggle { border: none; cursor: pointer; font-family: inherit; }
+.subtasks-toggle:hover { color: var(--accent); }
+.card-subtasks { list-style: none; margin: 8px 0 0; padding: 8px 0 0 32px; display: flex; flex-direction: column; gap: 8px; border-top: 1px solid var(--border); }
+.card-subtasks li { display: flex; align-items: center; gap: 9px; font-size: 14px; }
+.card-subtasks li.done span { text-decoration: line-through; color: var(--muted); }
+.sub-check {
+  flex: none; width: 18px; height: 18px; border: 2px solid var(--muted);
+  border-radius: 5px; background: transparent; cursor: pointer;
+}
+.sub-check.checked { background: var(--ok); border-color: var(--ok); position: relative; }
+.sub-check.checked::after { content: "✓"; color: #fff; font-size: 12px; position: absolute; inset: 0; display: grid; place-items: center; }
 .card-text { flex: 1; min-width: 0; }
 .card-title { font-weight: 600; word-break: break-word; }
 .card-preview {

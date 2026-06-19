@@ -27,6 +27,20 @@ const state = {
 
 let draggingNoteId = null; // id of the card being dragged onto a notebook
 
+// Which task cards have their subtasks expanded on the list (persisted).
+const expandedTasks = new Set(JSON.parse(localStorage.getItem('xn.expanded') || '[]'));
+function isExpanded(id) { return expandedTasks.has(id); }
+function toggleExpanded(id) {
+  if (expandedTasks.has(id)) expandedTasks.delete(id); else expandedTasks.add(id);
+  try { localStorage.setItem('xn.expanded', JSON.stringify([...expandedTasks])); } catch {}
+}
+function subtaskListHTML(note) {
+  return '<ul class="card-subtasks">' + (note.subtasks || []).map((s, i) =>
+    `<li class="${s.done ? 'done' : ''}"><button class="sub-check ${s.done ? 'checked' : ''}" data-i="${i}" aria-label="Toggle subtask"></button><span>${escapeHtml(s.text)}</span></li>`
+  ).join('') + '</ul>';
+}
+
+
 // --- Notebooks ----------------------------------------------------------
 
 const LS_NOTEBOOKS = 'xn.notebooks';
@@ -467,12 +481,13 @@ function renderCard(note) {
             ${note.unsynced ? '<span class="badge unsynced" title="Saved on this device — not yet on Drive">● Unsynced</span>' : ''}
             ${note.notebook ? `<button class="nb-chip" data-nb="${escapeAttr(note.notebook)}">&#128214; ${escapeHtml(note.notebook)}</button>` : ''}
             ${note.due ? `<span class="badge ${isOverdue(note) ? 'overdue' : ''}">${formatDue(note.due)}</span>` : ''}
-            ${subTotal ? `<span class="badge">${subDone}/${subTotal} subtasks</span>` : ''}
+            ${subTotal ? `<button class="badge subtasks-toggle">${isExpanded(note.id) ? '&#9662;' : '&#9656;'} ${subDone}/${subTotal}</button>` : ''}
             ${(note.attachments || []).length ? `<span class="badge">📎 ${note.attachments.length}</span>` : ''}
             ${(note.tags || []).map((t) => `<button class="tag ${isTagActive(t) ? 'active' : ''}" data-tag="${escapeAttr(t)}">#${escapeHtml(t)}</button>`).join('')}
           </div>
         </div>
       </div>
+      ${subTotal && isExpanded(note.id) ? subtaskListHTML(note) : ''}
     </div>`;
 
   // Multi-select mode: the whole card toggles selection; skip normal wiring.
@@ -497,6 +512,19 @@ function renderCard(note) {
       await store.saveNote(note);
     });
   }
+  // Expand/collapse the subtask checklist inline.
+  const subToggle = card.querySelector('.subtasks-toggle');
+  if (subToggle) subToggle.addEventListener('click', (e) => { e.stopPropagation(); toggleExpanded(note.id); render(); });
+  card.querySelectorAll('.sub-check').forEach((cb) => {
+    cb.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      const i = Number(cb.dataset.i);
+      if (!note.subtasks[i]) return;
+      note.subtasks[i].done = !note.subtasks[i].done;
+      render();
+      await store.saveNote(note);
+    });
+  });
   card.querySelectorAll('.tag').forEach((btn) => {
     btn.addEventListener('click', (e) => {
       e.stopPropagation(); // don't open the editor
@@ -1367,8 +1395,16 @@ function renderSubtasks(note) {
     li.querySelector('input[type=checkbox]').addEventListener('change', (e) => {
       st.done = e.target.checked;
     });
-    li.querySelector('.subtask-text').addEventListener('input', (e) => {
-      st.text = e.target.value;
+    const input = li.querySelector('.subtask-text');
+    input.addEventListener('input', (e) => { st.text = e.target.value; });
+    // Paste or drop a bullet/numbered list to add many subtasks at once.
+    input.addEventListener('paste', (e) => {
+      const text = (e.clipboardData || window.clipboardData)?.getData('text') || '';
+      handleListInput(note, st, text, e);
+    });
+    input.addEventListener('drop', (e) => {
+      const text = e.dataTransfer?.getData('text') || '';
+      handleListInput(note, st, text, e);
     });
     li.querySelector('.remove').addEventListener('click', () => {
       note.subtasks.splice(i, 1);
@@ -1376,6 +1412,23 @@ function renderSubtasks(note) {
     });
     ul.appendChild(li);
   });
+}
+
+// Split a pasted/dropped multi-line list into subtasks (strips bullet/number
+// markers). Single-line input is left to the default behaviour.
+function handleListInput(note, st, text, e) {
+  if (!text || !/[\r\n]/.test(text)) return; // single line — normal paste/drop
+  const lines = text.split(/\r?\n/)
+    .map((l) => l.replace(/^\s*([-*•‣◦]|\d+[.)])\s+/, '').trim())
+    .filter(Boolean);
+  if (!lines.length) return;
+  e.preventDefault();
+  st.text = lines[0];
+  const idx = note.subtasks.indexOf(st);
+  const rest = lines.slice(1).map((t) => ({ text: t, done: false }));
+  note.subtasks.splice(idx + 1, 0, ...rest);
+  setType('task'); // ensure subtasks are shown
+  renderSubtasks(note);
 }
 
 // Cache of object URLs for attachment previews (per session).
@@ -1809,6 +1862,8 @@ function wireEvents() {
     state.current.subtasks.push({ text: '', done: false });
     setType('task');
     renderSubtasks(state.current);
+    const inputs = $('#subtaskList').querySelectorAll('.subtask-text');
+    inputs[inputs.length - 1]?.focus(); // focus the new row (handy for pasting a list)
   });
   // Body formatting toolbar (mousedown keeps the textarea selection).
   $('#formatBar').addEventListener('mousedown', (e) => {
