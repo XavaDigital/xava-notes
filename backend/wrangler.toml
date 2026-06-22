@@ -1,0 +1,31 @@
+name = "xava-notes-api"
+main = "src/index.js"
+compatibility_date = "2025-01-01"
+
+# Run the scheduled handler every minute (send due reminders + flush the outbox).
+[triggers]
+crons = ["* * * * *"]
+
+# D1 database binding. Create it with:
+#   wrangler d1 create xava-notes
+# then paste the printed database_id below.
+[[d1_databases]]
+binding = "DB"
+database_name = "xava-notes"
+database_id = "REPLACE_WITH_YOUR_D1_DATABASE_ID"
+
+[vars]
+# The OAuth *Web application* client id from your dedicated Google Cloud project
+# (drive.file scope, published to Production). The same client id the PWA uses.
+GOOGLE_CLIENT_ID = "REPLACE.apps.googleusercontent.com"
+# Your GitHub Pages origin (no path, no trailing slash) — used for CORS.
+ALLOWED_ORIGIN = "https://xavadigital.github.io"
+# VAPID public key (it is public, so a var is fine). Generate with:
+#   npx web-push generate-vapid-keys
+VAPID_PUBLIC_KEY = "REPLACE_VAPID_PUBLIC_KEY"
+# Contact for push services (mailto: or https:).
+VAPID_SUBJECT = "mailto:you@example.com"
+
+# Secrets — set with `wrangler secret put <NAME>` (NOT committed):
+#   GOOGLE_CLIENT_SECRET   (from the OAuth Web client)
+#   VAPID_PRIVATE_KEY      (from web-push generate-vapid-keys)
