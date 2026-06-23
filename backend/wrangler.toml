@@ -10,7 +10,7 @@ crons = ["* * * * *"]
 #   wrangler d1 create xava-notes
 # then paste the printed database_id below.
 [[d1_databases]]
-binding = "xava_notes"
+binding = "DB"
 database_name = "xava-notes"
 database_id = "954041d1-e88d-4180-90ac-93c3674158c7"
 
