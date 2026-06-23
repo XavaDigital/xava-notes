@@ -151,7 +151,11 @@ export async function syncPending() {
   const rows = await idbAll('notes');
   let synced = 0;
   for (const r of rows) {
-    if (!r.dirty) continue;
+    // Retry anything not confirmed on Drive: dirty edits AND notes that never
+    // got a fileId (e.g. a create whose response was lost). The pending/unsynced
+    // count uses this same condition, so the two must stay in lockstep — else a
+    // note shows "Unsynced" forever while the retry loop quietly skips it.
+    if (!r.dirty && r.note.fileId) continue;
     try {
       const meta = await writeNoteToDrive(r.note);
       await idbPut('notes', { id: r.note.id, note: r.note, modifiedTime: meta.modifiedTime || r.note.updated, dirty: false });
