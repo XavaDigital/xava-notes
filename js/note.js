@@ -20,6 +20,7 @@ export function emptyNote(type = 'note') {
     body: '',
     notebook: '', // optional notebook/list this item belongs to
     done: false,
+    completedAt: '', // ISO time the task was checked off (for the Completed view)
     due: '', // YYYY-MM-DD
     tags: [],
     subtasks: [], // [{text, done}]
@@ -46,6 +47,7 @@ export function noteToMarkdown(note) {
   if (note.due) meta.due = note.due;
   if (note.type === 'task') {
     meta.done = !!note.done;
+    if (note.done && note.completedAt) meta.completedAt = note.completedAt;
     if (note.subtasks?.length) meta.subtasks = note.subtasks;
   }
   if (note.attachments?.length) meta.attachments = note.attachments;
@@ -85,6 +87,7 @@ export function noteFromMarkdown(text, fileId, fileName) {
     body: cleanBody.replace(/^\n+/, ''),
     notebook: meta.notebook ? String(meta.notebook) : '',
     done: !!meta.done,
+    completedAt: meta.completedAt || '',
     due: meta.due || '',
     tags: Array.isArray(meta.tags) ? meta.tags.map(String) : [],
     subtasks: Array.isArray(meta.subtasks)

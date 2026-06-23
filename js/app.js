@@ -18,6 +18,7 @@ const state = {
   inbox: true, // default view: uncategorized notes (no notebook)
   notebook: '', // active notebook path ('' with inbox=false means All notes)
   trash: false, // viewing the Trash (soft-deleted items)
+  completed: false, // viewing completed tasks (newest-completed first)
   sort: localStorage.getItem('xn.sort') || 'manual', // 'manual' | 'date' | 'recent'
   current: null, // note being edited
   editing: false, // editor is in edit (vs read-only) mode
@@ -116,7 +117,7 @@ function allNotebooks() {
 function restoreView() {
   try {
     const v = JSON.parse(localStorage.getItem('xn.view') || 'null');
-    if (v) { state.inbox = !!v.inbox; state.notebook = v.notebook || ''; state.trash = !!v.trash; }
+    if (v) { state.inbox = !!v.inbox; state.notebook = v.notebook || ''; state.trash = !!v.trash; state.completed = !!v.completed; }
   } catch {}
 }
 
@@ -246,6 +247,13 @@ async function quickSync() {
 
 // --- Rendering ----------------------------------------------------------
 
+// Mark a task done/undone, stamping the completion time (so the Completed view
+// can order by it) and clearing it when re-opened.
+function setDone(note, done) {
+  note.done = done;
+  note.completedAt = done ? new Date().toISOString() : '';
+}
+
 function matchesFilter(note) {
   switch (state.filter) {
     case 'task': return note.type === 'task';
@@ -304,6 +312,16 @@ function passesFilters(note) {
   if (state.trash) return !!note.deleted && matchesText(note);
   if (note.deleted) return false;
 
+  // Completed view: every checked-off task (across all notebooks), filtered by
+  // the active tags/search. Sorting by completion time is handled in sortItems.
+  if (state.completed) {
+    if (!(note.type === 'task' && note.done)) return false;
+    for (const t of activeTagFilters()) if (!noteHasTag(note, t)) return false;
+    return matchesText(note);
+  }
+  // Everywhere else, completed tasks are hidden.
+  if (note.type === 'task' && note.done) return false;
+
   // Scope: Inbox = uncategorized only; a notebook = that notebook (+ sub); All = no constraint.
   if (state.inbox) { if (note.notebook) return false; }
   else if (state.notebook && !inNotebook(note, state.notebook)) return false;
@@ -337,7 +355,17 @@ function byManual(a, b) {
   return effectiveOrder(a) - effectiveOrder(b) || (b.updated || '').localeCompare(a.updated || '');
 }
 
+// Completion time, falling back to last-updated for tasks done before we began
+// recording completedAt.
+function completedTime(note) {
+  return Date.parse(note.completedAt || note.updated || note.created || '') || 0;
+}
+function byCompleted(a, b) {
+  return completedTime(b) - completedTime(a); // most recently completed first
+}
+
 function sortItems(items) {
+  if (state.completed) return [...items].sort(byCompleted);
   const cmp = state.sort === 'date' ? byDueDate : state.sort === 'manual' ? byManual : byRecent;
   return [...items].sort(cmp);
 }
@@ -351,7 +379,7 @@ function sectionHeader(label, extraClass = '') {
 
 function render() {
   // Remember the current view so a refresh stays put.
-  try { localStorage.setItem('xn.view', JSON.stringify({ inbox: state.inbox, notebook: state.notebook, trash: state.trash })); } catch {}
+  try { localStorage.setItem('xn.view', JSON.stringify({ inbox: state.inbox, notebook: state.notebook, trash: state.trash, completed: state.completed })); } catch {}
   try { renderTagBar(); } catch (e) { console.warn('Xava Notes: tag bar render failed', e); }
   try { renderNotebookBar(); } catch (e) { console.warn('Xava Notes: notebook bar failed', e); }
   try { renderNotebooksUI(); } catch (e) { console.warn('Xava Notes: notebooks UI failed', e); }
@@ -367,9 +395,9 @@ function render() {
     const lbl = $('#sortLabel');
     if (lbl) lbl.textContent = labels[state.sort];
   }
-  list.classList.toggle('manual', state.sort === 'manual' && !state.trash);
+  list.classList.toggle('manual', state.sort === 'manual' && !state.trash && !state.completed);
   const quickBar = $('#quickAddBar');
-  if (quickBar) quickBar.hidden = state.trash;
+  if (quickBar) quickBar.hidden = state.trash || state.completed;
 
   const pending = state.notes.filter((n) => n.unsynced).length;
   const syncBtn = $('#syncBtn');
@@ -385,6 +413,7 @@ function render() {
     let msg, hint = '';
     if (state.trash) msg = 'Trash is empty.';
     else if (filtering) msg = 'No matches.';
+    else if (state.completed) { msg = 'No completed tasks yet.'; hint = 'Tasks you check off appear here, newest first.'; }
     else if (state.inbox) { msg = 'Inbox is empty.'; hint = 'New notes land here until you file them in a notebook.'; }
     else if (state.notebook) msg = 'This notebook is empty.';
     else { msg = 'No notes yet.'; hint = 'Tap + to capture your first note.'; }
@@ -507,10 +536,8 @@ function renderCard(note) {
   if (isTask) {
     card.querySelector('.check').addEventListener('click', async (e) => {
       e.stopPropagation();
-      note.done = !note.done;
-      card.classList.toggle('done', note.done);
-      card.classList.toggle('overdue', isOverdue(note));
-      card.querySelector('.check').classList.toggle('checked', note.done);
+      setDone(note, !note.done);
+      render(); // a completed task leaves the main view (and vice versa)
       await store.saveNote(note);
     });
   }
@@ -875,6 +902,7 @@ function renderNotebookBar() {
   if (!bar) return;
   let icon, label;
   if (state.trash) { icon = '&#128465;'; label = 'Trash'; }
+  else if (state.completed) { icon = '&#10003;'; label = 'Completed'; }
   else if (state.notebook) { icon = '&#128214;'; label = state.notebook; }
   else if (state.inbox) { icon = '&#128229;'; label = 'Inbox'; }
   else { icon = '&#128194;'; label = 'All notes'; }
@@ -950,17 +978,24 @@ function notebookTree() {
 }
 
 // Count of (non-deleted) notes in a notebook path, including its sub-notebooks.
+// A task that's been checked off (the Completed view's domain).
+function isCompletedTask(n) {
+  return n.type === 'task' && n.done;
+}
+
 function notebookCount(path) {
-  return state.notes.filter((n) => !n.deleted && n.notebook && inNotebook(n, path)).length;
+  return state.notes.filter((n) => !n.deleted && !isCompletedTask(n) && n.notebook && inNotebook(n, path)).length;
 }
 
 function notebookListHTML() {
   const live = state.notes.filter((n) => !n.deleted);
-  const total = live.length;
-  const inboxCount = live.filter((n) => !n.notebook).length;
-  const trashCount = state.notes.length - total;
-  const inboxActive = state.inbox && !state.trash;
-  const allActive = !state.inbox && !state.notebook && !state.trash;
+  const open = live.filter((n) => !isCompletedTask(n)); // completed live in their own view
+  const total = open.length;
+  const inboxCount = open.filter((n) => !n.notebook).length;
+  const completedCount = live.filter(isCompletedTask).length;
+  const trashCount = state.notes.length - live.length;
+  const inboxActive = state.inbox && !state.trash && !state.completed;
+  const allActive = !state.inbox && !state.notebook && !state.trash && !state.completed;
   let html =
     `<button class="notebook-item ${inboxActive ? 'active' : ''}" data-scope="inbox">` +
     `<span>&#128229; Inbox</span><span class="nb-count">${inboxCount}</span></button>` +
@@ -976,6 +1011,8 @@ function notebookListHTML() {
   };
   notebookTree().forEach(row);
   html +=
+    `<button class="notebook-item completed ${state.completed ? 'active' : ''}" data-scope="completed">` +
+    `<span>&#10003; Completed</span><span class="nb-count">${completedCount}</span></button>` +
     `<button class="notebook-item trash ${state.trash ? 'active' : ''}" data-trash="1">` +
     `<span>&#128465; Trash</span><span class="nb-count">${trashCount}</span></button>`;
   return html;
@@ -994,6 +1031,7 @@ function renderNotebooksUI() {
         if (btn.dataset.trash) selectTrash();
         else if (btn.dataset.scope === 'inbox') selectInbox();
         else if (btn.dataset.scope === 'all') selectAll();
+        else if (btn.dataset.scope === 'completed') selectCompleted();
         else selectNotebook(btn.dataset.nb);
       });
 
@@ -1136,6 +1174,7 @@ function selectInbox() {
   state.inbox = true;
   state.notebook = '';
   state.trash = false;
+  state.completed = false;
   closeNav();
   render();
 }
@@ -1144,6 +1183,7 @@ function selectAll() {
   state.inbox = false;
   state.notebook = '';
   state.trash = false;
+  state.completed = false;
   closeNav();
   render();
 }
@@ -1152,12 +1192,23 @@ function selectNotebook(name) {
   state.inbox = false;
   state.notebook = name || '';
   state.trash = false;
+  state.completed = false;
   closeNav();
   render();
 }
 
 function selectTrash() {
   state.trash = true;
+  state.inbox = false;
+  state.notebook = '';
+  state.completed = false;
+  closeNav();
+  render();
+}
+
+function selectCompleted() {
+  state.completed = true;
+  state.trash = false;
   state.inbox = false;
   state.notebook = '';
   closeNav();
@@ -1170,6 +1221,7 @@ function goToAllNotes() {
   state.inbox = false;
   state.notebook = '';
   state.trash = false;
+  state.completed = false;
   state.filter = 'all';
   state.tags = [];
   const search = $('#searchInput');
@@ -1707,7 +1759,8 @@ function collectEditor() {
   n.body = currentBodyMarkdown();
   n.notebook = $('#notebookSelect').value || '';
   n.due = $('#dueInput').value;
-  n.done = $('#doneInput').checked;
+  const nowDone = $('#doneInput').checked;
+  if (nowDone !== !!n.done) setDone(n, nowDone); // stamp completedAt only on change
   // n.tags is maintained live by the tag picker.
 }
 

@@ -407,8 +407,11 @@ body {
   background: transparent; color: var(--danger); cursor: pointer; font-size: 14px;
 }
 .danger-btn:active { background: rgba(255,95,86,.12); }
-.notebook-item.trash { margin-top: 6px; border-top: 1px solid var(--border); border-radius: 0; padding-top: 14px; }
-.notebook-item.trash.active { background: var(--accent); border-radius: 10px; color: #fff; }
+/* Completed + Trash form a "system" group below the notebooks; the divider
+   sits on Completed (the first of the pair). */
+.notebook-item.completed { margin-top: 6px; border-top: 1px solid var(--border); border-radius: 0; padding-top: 14px; }
+.notebook-item.trash { border-radius: 0; }
+.notebook-item.completed.active, .notebook-item.trash.active { background: var(--accent); border-radius: 10px; color: #fff; }
 
 /* Drag & drop import overlay */
 .drop-zone {
