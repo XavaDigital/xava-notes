@@ -120,19 +120,24 @@ body {
 }
 .card.show-edit .card-front { transform: translateX(-88px); } /* swipe left -> Edit */
 .card.show-del .card-front { transform: translateX(88px); }   /* swipe right -> Delete */
-.card-actions { position: absolute; top: 0; bottom: 0; width: 88px; display: flex; z-index: 0; }
+/* Hidden at rest so the coloured backgrounds never bleed through the rounded
+   corners of the card-front; shown only while swiping or settled open. */
+.card-actions { position: absolute; top: 0; bottom: 0; width: 88px; display: flex; z-index: 0; opacity: 0; }
+.card.swiping .card-actions,
+.card.show-edit .card-actions-right,
+.card.show-del .card-actions-left { opacity: 1; }
 .card-actions-right { right: 0; }
 .card-actions-left { left: 0; }
-.card-edit, .card-del {
+.card-edit, .card-del, .card-restore, .card-purge {
   flex: 1; border: none; color: #fff; cursor: pointer;
   font-size: 12px; font-weight: 600;
   display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px;
 }
-.card-edit span, .card-del span { font-size: 18px; }
-.card-edit { background: var(--accent); }
-.card-edit:active { background: var(--accent-2); }
-.card-del { background: var(--danger); }
-.card-del:active { filter: brightness(.9); }
+.card-edit span, .card-del span, .card-restore span, .card-purge span { font-size: 18px; }
+.card-edit, .card-restore { background: var(--accent); }
+.card-edit:active, .card-restore:active { background: var(--accent-2); }
+.card-del, .card-purge { background: var(--danger); }
+.card-del:active, .card-purge:active { filter: brightness(.9); }
 .card:active { border-color: var(--accent); }
 .card.done { opacity: .55; }
 .card.overdue { border-color: rgba(255,95,86,.4); }

@@ -498,9 +498,16 @@ function renderCard(note) {
   const subDone = (note.subtasks || []).filter((s) => s.done).length;
   const subTotal = (note.subtasks || []).length;
 
+  // Swipe actions differ in Trash (Restore / Delete forever) vs normal views
+  // (Delete / Edit). Left = right-swipe reveal, right = left-swipe reveal.
+  const actions = state.trash
+    ? `<div class="card-actions card-actions-left"><button class="card-purge" aria-label="Delete forever"><span>&#128465;</span>Delete</button></div>
+       <div class="card-actions card-actions-right"><button class="card-restore" aria-label="Restore"><span>&#8617;</span>Restore</button></div>`
+    : `<div class="card-actions card-actions-left"><button class="card-del" aria-label="Delete note"><span>&#128465;</span>Delete</button></div>
+       <div class="card-actions card-actions-right"><button class="card-edit" aria-label="Edit note"><span>&#9998;</span>Edit</button></div>`;
+
   card.innerHTML = `
-    <div class="card-actions card-actions-left"><button class="card-del" aria-label="Delete note"><span>&#128465;</span>Delete</button></div>
-    <div class="card-actions card-actions-right"><button class="card-edit" aria-label="Edit note"><span>&#9998;</span>Edit</button></div>
+    ${actions}
     <div class="card-front">
       <div class="card-main">
         <span class="drag-handle" aria-label="Reorder" title="Drag to reorder">&#8942;&#8942;</span>
@@ -578,32 +585,61 @@ function renderCard(note) {
     card.addEventListener('dragend', () => { draggingNoteId = null; card.classList.remove('dragging'); });
   }
 
-  // Edit action (swipe left) opens straight in edit mode.
-  card.querySelector('.card-edit').addEventListener('click', (e) => {
-    e.stopPropagation();
-    closeSwipes(null);
-    openEditor(note, { edit: true });
-  });
-  // Delete action (swipe right) soft-deletes after confirmation.
-  card.querySelector('.card-del').addEventListener('click', async (e) => {
-    e.stopPropagation();
-    closeSwipes(null);
-    const choice = await showDialog({
-      title: note.title || notePreview(note) || 'Item',
-      message: 'Move this item to Trash?',
-      actions: [
-        { label: 'Move to Trash', value: 'yes', kind: 'danger' },
-        { label: 'Cancel', value: 'no' },
-      ],
+  if (state.trash) {
+    // Restore action (swipe left) brings the item back to its notebook/Inbox.
+    card.querySelector('.card-restore').addEventListener('click', async (e) => {
+      e.stopPropagation();
+      closeSwipes(null);
+      await store.restoreNote(note);
+      state.notes = await store.cachedNotes();
+      render();
     });
-    if (choice !== 'yes') return;
-    await store.softDeleteNote(note);
-    state.notes = await store.cachedNotes();
-    render();
-  });
+    // Delete-forever action (swipe right) purges from Drive after confirmation.
+    card.querySelector('.card-purge').addEventListener('click', async (e) => {
+      e.stopPropagation();
+      closeSwipes(null);
+      const choice = await showDialog({
+        title: note.title || notePreview(note) || 'Item',
+        message: 'Permanently delete this item from Drive? This cannot be undone.',
+        actions: [
+          { label: 'Delete forever', value: 'yes', kind: 'danger' },
+          { label: 'Cancel', value: 'no' },
+        ],
+      });
+      if (choice !== 'yes') return;
+      await store.purgeNote(note);
+      state.notes = await store.cachedNotes();
+      render();
+    });
+  } else {
+    // Edit action (swipe left) opens straight in edit mode.
+    card.querySelector('.card-edit').addEventListener('click', (e) => {
+      e.stopPropagation();
+      closeSwipes(null);
+      openEditor(note, { edit: true });
+    });
+    // Delete action (swipe right) soft-deletes after confirmation.
+    card.querySelector('.card-del').addEventListener('click', async (e) => {
+      e.stopPropagation();
+      closeSwipes(null);
+      const choice = await showDialog({
+        title: note.title || notePreview(note) || 'Item',
+        message: 'Move this item to Trash?',
+        actions: [
+          { label: 'Move to Trash', value: 'yes', kind: 'danger' },
+          { label: 'Cancel', value: 'no' },
+        ],
+      });
+      if (choice !== 'yes') return;
+      await store.softDeleteNote(note);
+      state.notes = await store.cachedNotes();
+      render();
+    });
+  }
 
-  // Touch gestures: long-press reorder (manual) + swipe-to-edit.
-  if (!state.trash) wireCardGestures(card, note);
+  // Touch gestures: swipe (both views) + long-press reorder (internally gated to
+  // non-trash manual sort, so it stays inert in Trash).
+  wireCardGestures(card, note);
 
   card.querySelector('.card-text').addEventListener('click', () => {
     if (suppressCardClick) { suppressCardClick = false; return; }
@@ -734,7 +770,7 @@ function wireCardGestures(card, note) {
     const mx = t.clientX - startX, my = t.clientY - startY;
     if (mode === 'reorder') { e.preventDefault(); updateReorder(t.clientY); return; }
     if (mode === null) {
-      if (Math.abs(mx) > 8 && Math.abs(mx) > Math.abs(my)) { mode = 'swipe'; clearLP(); closeSwipes(card); }
+      if (Math.abs(mx) > 8 && Math.abs(mx) > Math.abs(my)) { mode = 'swipe'; clearLP(); closeSwipes(card); card.classList.add('swiping'); }
       else if (Math.abs(my) > 8) { mode = 'scroll'; clearLP(); } // let the page scroll
     }
     if (mode === 'swipe') {
@@ -753,6 +789,7 @@ function wireCardGestures(card, note) {
     if (mode === 'reorder') { suppressCardClick = true; finishReorder(); }
     else if (mode === 'swipe') {
       suppressCardClick = true;
+      card.classList.remove('swiping');
       front.style.transform = '';
       card.classList.remove('show-edit', 'show-del');
       if (dx < -SWIPE_W / 2) card.classList.add('show-edit');
