@@ -7,26 +7,27 @@
 
 export const CONFIG = {
   // Optional default. Leave '' to require entering it in Settings.
-  googleClientId: '',
+  googleClientId:
+    "273765857524-837m333nlq58hl8ccmksnpir2ghjhs4d.apps.googleusercontent.com",
 
   // drive.file = the app can only see and manage files it creates itself.
   // This is the least-privilege Drive scope and needs no Google verification.
-  driveScope: 'https://www.googleapis.com/auth/drive.file',
+  driveScope: "https://www.googleapis.com/auth/drive.file",
 
   // Name of the Drive folder where notes live.
-  appFolderName: 'XavaNotes',
+  appFolderName: "XavaNotes",
 
   // Reserved for a future backend (reminders / push notifications).
   // Leave '' for fully serverless mode.
-  apiBaseUrl: '',
+  apiBaseUrl: "https://xava-notes-api.xava.workers.dev",
 };
 
-const LS_CLIENT_ID = 'xn.clientId';
+const LS_CLIENT_ID = "xn.clientId";
 
 export function getClientId() {
-  return localStorage.getItem(LS_CLIENT_ID) || CONFIG.googleClientId || '';
+  return localStorage.getItem(LS_CLIENT_ID) || CONFIG.googleClientId || "";
 }
 
 export function setClientId(id) {
-  localStorage.setItem(LS_CLIENT_ID, (id || '').trim());
+  localStorage.setItem(LS_CLIENT_ID, (id || "").trim());
 }

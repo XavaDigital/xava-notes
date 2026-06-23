@@ -10,9 +10,9 @@ crons = ["* * * * *"]
 #   wrangler d1 create xava-notes
 # then paste the printed database_id below.
 [[d1_databases]]
-binding = "DB"
+binding = "xava_notes"
 database_name = "xava-notes"
-database_id = "REPLACE_WITH_YOUR_D1_DATABASE_ID"
+database_id = "954041d1-e88d-4180-90ac-93c3674158c7"
 
 [vars]
 # The OAuth *Web application* client id from your dedicated Google Cloud project
@@ -22,9 +22,9 @@ GOOGLE_CLIENT_ID = "REPLACE.apps.googleusercontent.com"
 ALLOWED_ORIGIN = "https://xavadigital.github.io"
 # VAPID public key (it is public, so a var is fine). Generate with:
 #   npx web-push generate-vapid-keys
-VAPID_PUBLIC_KEY = "REPLACE_VAPID_PUBLIC_KEY"
+VAPID_PUBLIC_KEY = "BGgxjagp7vma_OF7MtiyVdAbFjTDGGxB5KdT8c_L5fwLlBvV6Jw_XMh1SRZGwVSAK92UirO6CB7saP4jx6jL2XI"
 # Contact for push services (mailto: or https:).
-VAPID_SUBJECT = "mailto:you@example.com"
+VAPID_SUBJECT = "mailto:david@xavadigital.com"
 
 # Secrets — set with `wrangler secret put <NAME>` (NOT committed):
 #   GOOGLE_CLIENT_SECRET   (from the OAuth Web client)
