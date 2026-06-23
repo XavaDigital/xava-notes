@@ -46,7 +46,7 @@ export function parseMarkdownFile(filename, text) {
   // fresh identity so it's created as a new file under the current app, and
   // drop attachment refs (those Drive ids belong to the previous app).
   if (isXavaNote(text)) {
-    const n = noteFromMarkdown(text, null);
+    const n = noteFromMarkdown(text, null, filename);
     n.id = newId();
     n.fileId = null;
     n.attachments = [];

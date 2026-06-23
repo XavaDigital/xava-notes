@@ -72,7 +72,11 @@ export async function cachedNotes() {
 }
 
 function appPropsFor(note) {
-  const p = { type: note.type, title: (note.title || '').slice(0, 120) };
+  // The title is NOT stored here: Drive caps each appProperty at 124 bytes
+  // (key + value), which long titles exceed. The full title lives in the file
+  // content (frontmatter + H1) and the filename carries a truncated copy, so a
+  // metadata copy would be redundant — and nothing reads it back anyway.
+  const p = { type: note.type };
   if (note.type === 'task') {
     p.done = note.done ? '1' : '0';
     if (note.due) p.due = note.due;
@@ -225,7 +229,7 @@ export async function refreshFromDrive() {
     }
     try {
       const text = await drive.getContent(f.id);
-      const note = noteFromMarkdown(text, f.id);
+      const note = noteFromMarkdown(text, f.id, f.name);
       await idbPut('notes', { id: note.id, note, modifiedTime: f.modifiedTime });
     } catch (err) {
       // Don't let one unreadable file abort the whole sync.

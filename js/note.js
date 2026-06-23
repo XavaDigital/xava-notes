@@ -61,7 +61,7 @@ export function noteToMarkdown(note) {
 }
 
 // Parse Markdown file contents into a note object.
-export function noteFromMarkdown(text, fileId) {
+export function noteFromMarkdown(text, fileId, fileName) {
   const { meta, body } = parseFrontmatter(text);
 
   // Strip a leading "# Title" heading from the body if present (we re-add it
@@ -77,7 +77,10 @@ export function noteFromMarkdown(text, fileId) {
   return {
     id: meta.id || newId(),
     fileId: fileId || null,
-    title: meta.title || titleFromBody || '',
+    // Back-compat: if neither the frontmatter nor a body heading carries a
+    // title, fall back to the Drive filename (older files, or files created or
+    // renamed outside the app, may have no title in their contents).
+    title: meta.title || titleFromBody || titleFromFilename(fileName) || '',
     type: meta.type === 'task' ? 'task' : 'note',
     body: cleanBody.replace(/^\n+/, ''),
     notebook: meta.notebook ? String(meta.notebook) : '',
@@ -101,6 +104,12 @@ export function noteFromMarkdown(text, fileId) {
     created: meta.created || new Date().toISOString(),
     updated: meta.updated || meta.created || new Date().toISOString(),
   };
+}
+
+// Recover a usable title from a Drive filename (the back-compat fallback when a
+// file's contents carry no title). Just drops the .md extension.
+function titleFromFilename(name) {
+  return (name || '').replace(/\.md$/i, '').trim();
 }
 
 // A safe, human-readable Drive filename for a note.
