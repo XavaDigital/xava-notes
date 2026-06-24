@@ -17,7 +17,7 @@ database_id = "954041d1-e88d-4180-90ac-93c3674158c7"
 [vars]
 # The OAuth *Web application* client id from your dedicated Google Cloud project
 # (drive.file scope, published to Production). The same client id the PWA uses.
-GOOGLE_CLIENT_ID = "REPLACE.apps.googleusercontent.com"
+GOOGLE_CLIENT_ID = "273765857524-837m333nlq58hl8ccmksnpir2ghjhs4d.apps.googleusercontent.com"
 # Your GitHub Pages origin (no path, no trailing slash) — used for CORS.
 ALLOWED_ORIGIN = "https://xavadigital.github.io"
 # VAPID public key (it is public, so a var is fine). Generate with:
