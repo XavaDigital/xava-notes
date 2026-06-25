@@ -36,6 +36,29 @@ function json(data, status, env) {
   });
 }
 
+// Self-healing schema. `wrangler d1 execute` writes to the *local* DB by
+// default, so it's easy to deploy a Worker whose remote D1 has no tables —
+// every query then 500s ("no such table: config"). Running the idempotent
+// CREATE TABLE IF NOT EXISTS statements once per isolate removes that whole
+// failure class: the database bootstraps itself on first request.
+const SCHEMA = [
+  'CREATE TABLE IF NOT EXISTS config (k TEXT PRIMARY KEY, v TEXT)',
+  'CREATE TABLE IF NOT EXISTS subscriptions (endpoint TEXT PRIMARY KEY, p256dh TEXT NOT NULL, auth TEXT NOT NULL, created_at INTEGER)',
+  'CREATE TABLE IF NOT EXISTS reminders (id TEXT PRIMARY KEY, note_id TEXT, title TEXT NOT NULL, due_at INTEGER NOT NULL, sent INTEGER DEFAULT 0, created_at INTEGER)',
+  'CREATE INDEX IF NOT EXISTS idx_reminders_due ON reminders (sent, due_at)',
+  'CREATE TABLE IF NOT EXISTS outbox (id TEXT PRIMARY KEY, op TEXT NOT NULL, note_id TEXT, file_id TEXT, name TEXT, content TEXT, app_props TEXT, status TEXT DEFAULT \'pending\', attempts INTEGER DEFAULT 0, last_error TEXT, result_file_id TEXT, created_at INTEGER, updated_at INTEGER)',
+  'CREATE INDEX IF NOT EXISTS idx_outbox_status ON outbox (status, created_at)',
+];
+let schemaReady = null;
+function ensureSchema(env) {
+  // Cache the bootstrap per isolate so it runs at most once per cold start.
+  if (!schemaReady) {
+    schemaReady = env.DB.batch(SCHEMA.map((sql) => env.DB.prepare(sql)))
+      .catch((e) => { schemaReady = null; throw e; });
+  }
+  return schemaReady;
+}
+
 async function getConfig(env, k) {
   const row = await env.DB.prepare('SELECT v FROM config WHERE k=?').bind(k).first();
   return row ? row.v : null;
@@ -78,6 +101,7 @@ export default {
     const url = new URL(req.url);
     const path = url.pathname.replace(/\/+$/, '') || '/';
     try {
+      await ensureSchema(env);
       // --- Public ---
       if (req.method === 'GET' && path === '/push/vapid-public-key') {
         return json({ key: env.VAPID_PUBLIC_KEY }, 200, env);
@@ -168,6 +192,7 @@ export default {
 
   async scheduled(event, env, ctx) {
     ctx.waitUntil((async () => {
+      await ensureSchema(env);
       await flushOutbox(env);
       await sendDueReminders(env);
     })());
