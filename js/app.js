@@ -214,13 +214,19 @@ onAuthChange(async (signed) => {
 
 // --- Sync ---------------------------------------------------------------
 
+let syncing = false;
 async function refresh() {
   if (!isSignedIn()) return;
-  setStatus('Syncing…');
+  if (syncing) return; // already running — don't stack syncs / restart the spin
+  syncing = true;
+  const syncBtn = $('#syncBtn');
+  if (syncBtn) syncBtn.classList.add('syncing');
+  // Sticky while it runs — the spinner, not a timed popup, signals "in progress".
+  setStatus('Syncing…', true, true);
   try {
     state.notes = await store.refreshFromDrive();
     render();
-    setStatus('');
+    setStatus('Synced');
   } catch (err) {
     if (!navigator.onLine) {
       setStatus('Offline — showing cached notes', true);
@@ -231,6 +237,9 @@ async function refresh() {
     } else {
       setStatus(`Sync error: ${err.message}`, true);
     }
+  } finally {
+    syncing = false;
+    if (syncBtn) syncBtn.classList.remove('syncing');
   }
 }
 
@@ -405,6 +414,7 @@ function render() {
     syncBtn.classList.toggle('pending', pending > 0);
     syncBtn.title = pending > 0 ? `${pending} not synced — tap to sync` : 'Sync now';
   }
+  reflectConnection();
 
   const items = sortItems(state.notes.filter(passesFilters));
   const filtering = state.query || state.tags.length || state.filter !== 'all';
@@ -1984,6 +1994,25 @@ function reflectAuth() {
   if (status) status.textContent = signed ? 'Connected to Google Drive.' : 'Not connected.';
   const inBtn = $('#signInBtn'); if (inBtn) inBtn.hidden = signed;
   const outBtn = $('#signOutBtn'); if (outBtn) outBtn.hidden = !signed;
+  reflectConnection();
+}
+
+// Persistent banner under the header so a connection problem is visible in the
+// app (previously this only showed up in the console). Offline is informational;
+// "not connected" is tappable to reconnect.
+function reflectConnection() {
+  const banner = $('#connBanner');
+  if (!banner) return;
+  let msg = '', tappable = false;
+  if (!navigator.onLine) {
+    msg = 'Offline — changes are saved on this device and will sync when you reconnect.';
+  } else if (!isSignedIn()) {
+    msg = '⚠ Not connected to Google Drive — tap to reconnect.';
+    tappable = true;
+  }
+  banner.textContent = msg;
+  banner.hidden = !msg;
+  banner.classList.toggle('tappable', tappable);
 }
 
 // --- Events -------------------------------------------------------------
@@ -2130,12 +2159,18 @@ function wireEvents() {
   wireDragDrop();
   wireQuickAdd();
 
-  window.addEventListener('online', refresh);
-  window.addEventListener('offline', () => setStatus('Offline — changes will sync later', true));
+  window.addEventListener('online', () => { reflectConnection(); refresh(); });
+  window.addEventListener('offline', reflectConnection);
+
+  // Tap the connection banner to reconnect (when signed out / token expired).
+  $('#connBanner').addEventListener('click', async () => {
+    if (isSignedIn() || !navigator.onLine) return;
+    try { await signIn(); } catch (err) { setStatus(err.message, true); }
+  });
 
   // Retry unsynced notes when the app regains focus, and periodically.
   document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'visible') quickSync();
+    if (document.visibilityState === 'visible') { reflectConnection(); quickSync(); }
   });
   setInterval(quickSync, 60000);
 }
