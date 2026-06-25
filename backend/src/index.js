@@ -176,7 +176,12 @@ export default {
         try {
           const row = await env.DB.prepare('SELECT * FROM outbox WHERE id=?').bind(id).first();
           const result = await processOutbox(env, row);
-          return json({ id, status: 'done', fileId: (result && result.fileId) || b.fileId || null }, 200, env);
+          return json({
+            id,
+            status: 'done',
+            fileId: (result && result.fileId) || b.fileId || null,
+            modifiedTime: (result && result.modifiedTime) || null,
+          }, 200, env);
         } catch (e) {
           await env.DB.prepare('UPDATE outbox SET attempts=attempts+1, last_error=?, updated_at=? WHERE id=?')
             .bind(String((e && e.message) || e), Date.now(), id).run();
@@ -209,12 +214,21 @@ async function freshToken(env) {
 async function processOutbox(env, row) {
   const token = await freshToken(env);
   const appProps = JSON.parse(row.app_props || '{}');
+  // Always stamp the noteId so findFileByNoteId can reconcile retries.
+  if (row.note_id && !appProps.noteId) appProps.noteId = row.note_id;
   const result = {};
   if (row.op === 'delete') {
     if (row.file_id) await google.trashFile(token, row.file_id);
   } else {
-    if (row.file_id) result.fileId = (await google.updateFile(token, row.file_id, row.name, row.content, appProps)).id;
-    else result.fileId = (await google.createFile(token, row.name, row.content, appProps)).id;
+    // Resolve the target file: an explicit fileId, otherwise an existing file
+    // for this noteId (so a retried create updates instead of duplicating).
+    let fileId = row.file_id;
+    if (!fileId && row.note_id) fileId = await google.findFileByNoteId(token, row.note_id);
+    const meta = fileId
+      ? await google.updateFile(token, fileId, row.name, row.content, appProps)
+      : await google.createFile(token, row.name, row.content, appProps);
+    result.fileId = meta.id;
+    result.modifiedTime = meta.modifiedTime;
   }
   await env.DB.prepare('UPDATE outbox SET status=?, result_file_id=?, updated_at=? WHERE id=?')
     .bind('done', result.fileId || row.file_id || null, Date.now(), row.id).run();

@@ -1,10 +1,12 @@
 // Local cache + Drive sync layer.
 //
 // - Notes are cached in IndexedDB for instant load and offline reading.
-// - Writes go straight to Drive when online; when offline they are queued and
-//   flushed on the next refresh.
+// - Writes go through the Worker outbox when connected (durable: a per-minute
+//   cron completes anything that doesn't land), else straight to Drive. Failed
+//   writes stay 'dirty' locally and are retried by syncPending().
 
 import * as drive from './drive.js';
+import { relayReady, apiFetch } from './auth.js';
 import {
   noteToMarkdown,
   noteFromMarkdown,
@@ -76,7 +78,9 @@ function appPropsFor(note) {
   // (key + value), which long titles exceed. The full title lives in the file
   // content (frontmatter + H1) and the filename carries a truncated copy, so a
   // metadata copy would be redundant — and nothing reads it back anyway.
-  const p = { type: note.type };
+  // noteId lets the server-side outbox reconcile a file back to this note (and
+  // stay idempotent on retries) without reading the file's contents.
+  const p = { type: note.type, noteId: note.id };
   if (note.type === 'task') {
     p.done = note.done ? '1' : '0';
     if (note.due) p.due = note.due;
@@ -96,12 +100,54 @@ async function baseModifiedTime(fileId) {
 async function writeNoteToDrive(note) {
   const content = noteToMarkdown(note);
   const name = noteFilename(note);
-  if (note.fileId) {
-    return drive.updateFile(note.fileId, name, content, appPropsFor(note));
+  const appProps = appPropsFor(note);
+
+  // When connected to the backend, hand the write to the Worker's outbox: it
+  // writes to Drive with its own refresh token and a per-minute cron retries
+  // anything that doesn't land, so a save survives the app closing. Direct Drive
+  // is the fallback for serverless mode (no backend / not connected yet).
+  if (relayReady()) {
+    const meta = await relayPut(note, name, content, appProps);
+    if (meta.fileId) note.fileId = meta.fileId;
+    return { id: note.fileId, modifiedTime: meta.modifiedTime };
   }
-  const meta = await drive.createFile(name, content, appPropsFor(note));
+
+  if (note.fileId) {
+    return drive.updateFile(note.fileId, name, content, appProps);
+  }
+  const meta = await drive.createFile(name, content, appProps);
   note.fileId = meta.id;
   return meta;
+}
+
+// POST a create/update to the Worker outbox. Only a synchronous 200 (the Worker
+// completed the Drive write) counts as success; a 202 means it was queued but
+// not yet confirmed, so we throw to keep the note dirty and let syncPending()
+// retry — the server stays idempotent via the stamped noteId.
+async function relayPut(note, name, content, appProperties) {
+  const res = await apiFetch('/outbox', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ op: 'put', noteId: note.id, fileId: note.fileId || null, name, content, appProperties }),
+  });
+  if (res.status !== 200) {
+    throw new Error(`Relay save not confirmed (${res.status})`);
+  }
+  const data = await res.json(); // { id, status, fileId, modifiedTime }
+  return { fileId: data.fileId || note.fileId || null, modifiedTime: data.modifiedTime || null };
+}
+
+// Trash a Drive file via the Worker outbox (deletes are idempotent, so a queued
+// 202 is fine — the cron will complete it).
+async function relayDelete(fileId) {
+  const res = await apiFetch('/outbox', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ op: 'delete', fileId }),
+  });
+  if (res.status !== 200 && res.status !== 202) {
+    throw new Error(`Relay delete failed (${res.status})`);
+  }
 }
 
 // Save a note (create or update). Optimistically updates the cache marked
@@ -190,7 +236,8 @@ export async function purgeNote(note) {
   }
   if (!note.fileId) return;
   try {
-    await drive.trashFile(note.fileId);
+    if (relayReady()) await relayDelete(note.fileId);
+    else await drive.trashFile(note.fileId);
   } catch (err) {
     if (isOffline(err)) {
       await idbPut('queue', { kind: 'delete', fileId: note.fileId });

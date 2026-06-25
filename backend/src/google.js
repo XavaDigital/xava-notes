@@ -99,6 +99,19 @@ export async function updateFile(token, fileId, name, content, appProperties) {
   return r.json();
 }
 
+// Find an existing app file by the noteId we stamp into its appProperties.
+// Lets the outbox be idempotent: a retried create updates the file the first
+// attempt made instead of producing a duplicate. Returns a fileId or null.
+export async function findFileByNoteId(token, noteId) {
+  const safe = String(noteId).replace(/'/g, "\\'");
+  const q = encodeURIComponent(
+    `appProperties has { key='noteId' and value='${safe}' } and trashed=false`
+  );
+  const r = await dfetch(token, `${DRIVE}?q=${q}&fields=files(id)&spaces=drive`);
+  const d = await r.json();
+  return (d.files && d.files[0] && d.files[0].id) || null;
+}
+
 export async function trashFile(token, fileId) {
   await dfetch(token, `${DRIVE}/${fileId}`, {
     method: 'PATCH',
