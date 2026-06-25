@@ -1,7 +1,7 @@
 // Main UI controller.
 
 import { getClientId, setClientId } from './config.js';
-import { signIn, signOut, isSignedIn, onAuthChange, getToken } from './auth.js';
+import { signIn, signOut, isSignedIn, onAuthChange, getToken, relayReady, apiFetch } from './auth.js';
 import * as store from './store.js';
 import * as drive from './drive.js';
 import { emptyNote, notePreview } from './note.js';
@@ -1302,6 +1302,8 @@ function openEditor(note, { edit = false } = {}) {
   renderNotebookSelect(note);
   $('#dueInput').value = note.due || '';
   $('#doneInput').checked = !!note.done;
+  // "Save & email" only makes sense on first save — hide it once the item exists.
+  $$('.btn-save-email').forEach((b) => { b.hidden = !!note.fileId; });
   note.tags = note.tags || [];
   renderTags(note);
   setType(note.type);
@@ -1801,14 +1803,16 @@ function collectEditor() {
   // n.tags is maintained live by the tag picker.
 }
 
-async function saveEditor() {
+async function saveEditor(email = false) {
   collectEditor();
   const n = state.current;
+  // Email only on first save (creation) — never on later edits.
+  const emailNow = email && !n.fileId;
   if (!n.title && !n.body.trim() && !(n.subtasks || []).length && !(n.attachments || []).length) {
     closeEditor();
     return;
   }
-  const saveBtns = $$('.btn-save');
+  const saveBtns = $$('.btn-save, .btn-save-email');
   saveBtns.forEach((b) => { b.classList.add('loading'); b.disabled = true; });
   setStatus('Saving…');
   try {
@@ -1822,10 +1826,38 @@ async function saveEditor() {
     render();
     setStatus(res.status === 'pending' ? 'Saved on this device — will sync to Drive' : '', res.status === 'pending');
     closeEditor();
+    if (emailNow) emailNoteCopy(n); // best-effort; updates the status itself
   } catch (err) {
     setStatus(`Save failed: ${err.message}`, true);
   } finally {
     saveBtns.forEach((b) => { b.classList.remove('loading'); b.disabled = false; });
+  }
+}
+
+// Email a copy of a just-saved item to the user, via the Worker (which holds the
+// Mailgun key). Best-effort and self-reporting; only fired by "Save & email" on
+// the first save of a new item.
+async function emailNoteCopy(note) {
+  if (!relayReady()) {
+    setStatus('Saved — connect to the backend to email a copy', true);
+    return;
+  }
+  try {
+    const res = await apiFetch('/notify', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        title: note.title,
+        type: note.type,
+        body: note.body,
+        due: note.due,
+        notebook: note.notebook,
+      }),
+    });
+    if (!res.ok) throw new Error(`${res.status}: ${(await res.text()).slice(0, 160)}`);
+    setStatus('Saved and emailed a copy to you');
+  } catch (err) {
+    setStatus(`Saved, but the email failed: ${err.message}`, true);
   }
 }
 
@@ -2020,7 +2052,8 @@ function wireEvents() {
   // Editor
   $('#editorBack').addEventListener('click', closeEditor);
   $$('.btn-edit').forEach((b) => b.addEventListener('click', () => { setEditing(true); $('#bodyEditor').focus(); }));
-  $$('.btn-save').forEach((b) => b.addEventListener('click', saveEditor));
+  $$('.btn-save').forEach((b) => b.addEventListener('click', () => saveEditor(false)));
+  $$('.btn-save-email').forEach((b) => b.addEventListener('click', () => saveEditor(true)));
   $('#editorDelete').addEventListener('click', deleteEditor);
   $('#typeNote').addEventListener('click', () => setType('note'));
   $('#typeTask').addEventListener('click', () => setType('task'));

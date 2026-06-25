@@ -26,6 +26,17 @@ VAPID_PUBLIC_KEY = "BGgxjagp7vma_OF7MtiyVdAbFjTDGGxB5KdT8c_L5fwLlBvV6Jw_XMh1SRZG
 # Contact for push services (mailto: or https:).
 VAPID_SUBJECT = "mailto:david@xavadigital.com"
 
+# Mailgun — powers the "Email me a copy when I save this" toggle.
+# MAILGUN_DOMAIN must be a verified sending domain in your Mailgun account.
+MAILGUN_DOMAIN = "mg.xavadigital.com"
+# Where the emails go.
+NOTIFY_EMAIL = "david@xavadigital.com"
+# Optional: From override (defaults to notes@<MAILGUN_DOMAIN>), and the EU API
+# base if your Mailgun account is in the EU region.
+# MAILGUN_FROM = "Xava Notes <notes@mg.xavadigital.com>"
+# MAILGUN_BASE_URL = "https://api.eu.mailgun.net"
+
 # Secrets — set with `wrangler secret put <NAME>` (NOT committed):
 #   GOOGLE_CLIENT_SECRET   (from the OAuth Web client)
 #   VAPID_PRIVATE_KEY      (from web-push generate-vapid-keys)
+#   MAILGUN_API_KEY        (your Mailgun private API key)

@@ -291,6 +291,23 @@ export function invalidateToken() {
   clearPersisted();
 }
 
+// True when the Worker backend is configured and this device is connected to it
+// (so authed API calls — /notify, /outbox — can be made).
+export function relayReady() {
+  return !!apiBase() && !!deviceToken;
+}
+
+// Make a Worker API call authenticated with the deviceToken. Throws if there's
+// no backend configured or the device isn't connected yet.
+export async function apiFetch(path, options = {}) {
+  if (!apiBase()) throw new Error('No backend configured');
+  if (!deviceToken) throw new Error('AUTH: not connected');
+  return fetch(`${apiBase()}${path}`, {
+    ...options,
+    headers: { Authorization: `Bearer ${deviceToken}`, ...(options.headers || {}) },
+  });
+}
+
 // Return a valid token, refreshing silently if possible.
 export async function getToken({ interactive = false } = {}) {
   if (isSignedIn()) return accessToken;

@@ -612,7 +612,7 @@ body {
 
 /* Read-only editor: hide all editing affordances, show Edit instead of Save */
 .sheet:not(.readonly) .btn-edit { display: none; }
-.sheet.readonly .btn-save { display: none; }
+.sheet.readonly .btn-save, .sheet.readonly .btn-save-email { display: none; }
 .sheet.readonly .format-bar,
 .sheet.readonly #mdToggle,
 .sheet.readonly #addSubtask,
@@ -635,6 +635,8 @@ body {
   border: none; border-radius: 10px; font-size: 15px; font-weight: 600; cursor: pointer;
 }
 .primary-btn:active { background: var(--accent-2); }
+.primary-btn.ghost-btn { background: transparent; color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+.primary-btn.ghost-btn:active { background: rgba(127,127,127,.14); }
 .primary-btn.loading { color: transparent; position: relative; pointer-events: none; }
 .primary-btn.loading::after {
   content: ''; position: absolute; inset: 0; margin: auto;

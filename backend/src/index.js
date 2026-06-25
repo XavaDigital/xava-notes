@@ -8,6 +8,7 @@
 //   POST /auth/access-token                -> { accessToken, expiresIn }  (mint from refresh token)
 //   POST /push/subscribe                   { subscription }
 //   POST /push/unsubscribe                 { endpoint }
+//   POST /notify                           { title, type, body?, due?, notebook? }  (emails the user)
 //   GET  /reminders                        -> { reminders }
 //   PUT  /reminders                        { id, noteId?, title, dueAt }
 //   DELETE /reminders/:id
@@ -18,6 +19,7 @@
 
 import * as google from './google.js';
 import { sendPush } from './webpush.js';
+import { sendEmail } from './mail.js';
 
 function cors(env) {
   return {
@@ -46,6 +48,28 @@ async function authed(req, env) {
   const token = (req.headers.get('Authorization') || '').replace(/^Bearer\s+/i, '');
   const stored = await getConfig(env, 'device_token');
   return !!token && !!stored && token === stored;
+}
+
+function escHtml(s) {
+  return String(s || '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+}
+
+// Build a subject/text/html email from a saved note/task payload.
+function formatNoteEmail(n) {
+  const kind = n.type === 'task' ? 'Task' : 'Note';
+  const title = (n.title || '').trim() || '(untitled)';
+  const subject = `[Xava ${kind}] ${title}`;
+  const meta = [
+    n.notebook ? `Notebook: ${n.notebook}` : '',
+    n.due ? `${n.type === 'task' ? 'Due' : 'Date'}: ${n.due}` : '',
+  ].filter(Boolean).join('\n');
+  const bodyText = (n.body || '').trim();
+  const text = [title, meta, bodyText].filter(Boolean).join('\n\n');
+  const html =
+    `<h2 style="margin:0 0 8px">${escHtml(title)}</h2>` +
+    (meta ? `<p style="color:#666;margin:0 0 12px">${escHtml(meta).replace(/\n/g, '<br>')}</p>` : '') +
+    (bodyText ? `<div style="white-space:pre-wrap">${escHtml(bodyText)}</div>` : '');
+  return { subject, text, html };
 }
 
 export default {
@@ -88,6 +112,12 @@ export default {
       if (req.method === 'POST' && path === '/push/unsubscribe') {
         const { endpoint } = await req.json();
         await env.DB.prepare('DELETE FROM subscriptions WHERE endpoint=?').bind(endpoint).run();
+        return json({ ok: true }, 200, env);
+      }
+
+      if (req.method === 'POST' && path === '/notify') {
+        const n = await req.json(); // { title, type, body, due, notebook }
+        await sendEmail(env, formatNoteEmail(n));
         return json({ ok: true }, 200, env);
       }
 
