@@ -199,8 +199,10 @@ body {
   content: ''; position: absolute; top: 7px; right: 7px;
   width: 7px; height: 7px; border-radius: 50%; background: #ffc107;
 }
-/* Spin the sync button while a sync is in progress. */
-#syncBtn.syncing { animation: spin .8s linear infinite; pointer-events: none; }
+/* Spin the sync icon while a sync is in progress. Rotating the SVG (centered in
+   its viewBox) avoids the off-centre wobble a text glyph gives. */
+#syncBtn.syncing { pointer-events: none; }
+#syncBtn.syncing .sync-ico { animation: spin .8s linear infinite; transform-origin: 50% 50%; }
 
 .mini-spin {
   display: inline-block; width: 13px; height: 13px; margin-right: 7px;
