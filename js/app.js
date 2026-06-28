@@ -142,6 +142,13 @@ async function boot() {
     console.warn('Xava Notes: init failed', e);
   }
 
+  // If launched via the Android share sheet, open the pre-filled note straight
+  // away — don't make the user wait behind a full Drive sync. It manages its own
+  // token (needed only when there are file attachments to upload), so kick it
+  // off before the blocking refresh below and just await it at the end.
+  const sharePending = handleSharedContent().catch((e) =>
+    console.warn('Xava Notes: share handling failed', e));
+
   // If we already have a client id, try a silent connect + refresh.
   if (getClientId()) {
     try {
@@ -156,8 +163,7 @@ async function boot() {
     openSettings();
   }
 
-  // If launched via the Android share sheet, open a pre-filled new note.
-  await handleSharedContent();
+  await sharePending;
 }
 
 // Web Share Target: the service worker stashed the shared title/text/url and any
