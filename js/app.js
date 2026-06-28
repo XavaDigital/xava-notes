@@ -161,18 +161,32 @@ async function boot() {
 }
 
 // Web Share Target: the service worker stashed the shared title/text/url and any
-// files in the 'xn-shared' cache and redirected here with ?shared=1. Build a new
-// note from it, uploading shared files as attachments.
+// files in the 'xn-shared' cache. On a cold start the OS navigates us to
+// ?shared=1; but when the app is *already open* the OS often just focuses the
+// existing window without navigating, so we also get poked via a postMessage
+// from the SW (see registerServiceWorker). Either way we just look for stashed
+// content in the cache and consume it — guarded so the two triggers can't
+// double-process the same share.
+let handlingShare = false;
 async function handleSharedContent() {
-  if (!new URLSearchParams(location.search).has('shared')) return;
-  history.replaceState({}, '', location.pathname); // don't re-trigger on refresh
+  // Clear the boot flag from the URL so a refresh can't re-trigger.
+  if (new URLSearchParams(location.search).has('shared')) {
+    history.replaceState({}, '', location.pathname);
+  }
+  if (handlingShare) return;
 
-  let meta = { title: '', text: '', url: '', files: [] };
+  let meta = null;
   const files = [];
+  let cache;
   try {
-    const cache = await caches.open('xn-shared');
+    cache = await caches.open('xn-shared');
     const metaRes = await cache.match('./shared-meta');
-    if (metaRes) meta = await metaRes.json();
+    if (!metaRes) return; // nothing was shared
+    meta = await metaRes.json();
+  } catch (e) { console.warn('Xava Notes: share read failed', e); return; }
+
+  handlingShare = true;
+  try {
     for (const f of meta.files || []) {
       const res = await cache.match(f.key);
       if (res) files.push(new File([await res.blob()], f.name, { type: f.type }));
@@ -205,6 +219,7 @@ async function handleSharedContent() {
     setStatus('');
   }
   openEditor(n, { edit: true });
+  handlingShare = false;
 }
 
 onAuthChange(async (signed) => {
@@ -1312,8 +1327,11 @@ function openEditor(note, { edit = false } = {}) {
   renderNotebookSelect(note);
   $('#dueInput').value = note.due || '';
   $('#doneInput').checked = !!note.done;
-  // "Save & email" only makes sense on first save — hide it once the item exists.
+  // "Save & email" only makes sense on first save — hide it once the item
+  // exists; a saved item gets a plain "Email" action instead (works any time,
+  // including from the read-only view).
   $$('.btn-save-email').forEach((b) => { b.hidden = !!note.fileId; });
+  $$('.btn-email').forEach((b) => { b.hidden = !note.fileId; });
   note.tags = note.tags || [];
   renderTags(note);
   setType(note.type);
@@ -1844,9 +1862,24 @@ async function saveEditor(email = false) {
   }
 }
 
-// Email a copy of a just-saved item to the user, via the Worker (which holds the
-// Mailgun key). Best-effort and self-reporting; only fired by "Save & email" on
-// the first save of a new item.
+// Email the currently-open (already-saved) note to the user on demand. If the
+// editor is in edit mode, capture any in-progress changes first so the email
+// reflects what's on screen (this does not save them to Drive).
+async function emailCurrentNote() {
+  const n = state.current;
+  if (!n) return;
+  if (state.editing) collectEditor();
+  const btns = $$('.btn-email');
+  btns.forEach((b) => { b.classList.add('loading'); b.disabled = true; });
+  try {
+    await emailNoteCopy(n);
+  } finally {
+    btns.forEach((b) => { b.classList.remove('loading'); b.disabled = false; });
+  }
+}
+
+// Email a copy of a saved item to the user, via the Worker (which holds the
+// Mailgun key). Best-effort and self-reporting.
 async function emailNoteCopy(note) {
   if (!relayReady()) {
     setStatus('Saved — connect to the backend to email a copy', true);
@@ -2083,6 +2116,7 @@ function wireEvents() {
   $$('.btn-edit').forEach((b) => b.addEventListener('click', () => { setEditing(true); $('#bodyEditor').focus(); }));
   $$('.btn-save').forEach((b) => b.addEventListener('click', () => saveEditor(false)));
   $$('.btn-save-email').forEach((b) => b.addEventListener('click', () => saveEditor(true)));
+  $$('.btn-email').forEach((b) => b.addEventListener('click', emailCurrentNote));
   $('#editorDelete').addEventListener('click', deleteEditor);
   $('#typeNote').addEventListener('click', () => setType('note'));
   $('#typeTask').addEventListener('click', () => setType('task'));
@@ -2305,9 +2339,18 @@ function formatWhen(iso) {
 }
 
 function registerServiceWorker() {
-  if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('sw.js').catch(() => {});
-  }
+  if (!('serviceWorker' in navigator)) return;
+  navigator.serviceWorker.register('sw.js').catch(() => {});
+  // When the app is already open, a fresh share won't reload the page — the SW
+  // pokes us instead so we can consume the stashed content. If the OS instead
+  // navigates this window (launch_handler: navigate-existing), the reload's
+  // boot() consumes it; the short delay lets that path win so we don't race the
+  // teardown. In the focus-only case (no reload) the timer fires and we consume.
+  navigator.serviceWorker.addEventListener('message', (e) => {
+    if (e.data && e.data.type === 'shared') {
+      setTimeout(() => handleSharedContent().catch(() => {}), 250);
+    }
+  });
 }
 
 boot();

@@ -1,7 +1,7 @@
 // Service worker: cache the app shell for offline use and fast loads.
 // Note data is cached separately in IndexedDB by the app.
 
-const CACHE = 'xava-notes-v57';
+const CACHE = 'xava-notes-v58';
 const SHELL = [
   './',
   './index.html',
@@ -58,6 +58,11 @@ async function handleShareTarget(request) {
     await cache.put(new Request('./shared-meta'), new Response(JSON.stringify(meta), {
       headers: { 'Content-Type': 'application/json' },
     }));
+    // If a window is already open, it may be focused (not navigated) by the OS,
+    // so the ?shared=1 boot path never runs. Poke any live clients to pick up
+    // the stashed content directly.
+    const clients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+    for (const c of clients) c.postMessage({ type: 'shared' });
   } catch (e) { /* ignore; still redirect */ }
   return Response.redirect(new URL('./?shared=1', self.registration.scope).href, 303);
 }
