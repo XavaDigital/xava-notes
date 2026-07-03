@@ -645,6 +645,17 @@ body {
 .sheet.readonly .tag-picker { border-color: transparent; padding-left: 0; }
 .editor-meta { color: var(--muted); font-size: 13px; flex: 0 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
+/* On narrow screens the Note/Task switch and the "Edited …" timestamp compete
+   with the action buttons for a single row and squash them. Give each its own
+   row so the buttons keep their full width. */
+@media (max-width: 859px) {
+  .sheet-head { flex-wrap: wrap; }
+  .sheet-head .type-toggle { order: 3; flex-basis: 100%; justify-content: center; }
+
+  .sheet-foot { flex-wrap: wrap; }
+  .sheet-foot .editor-meta { order: -1; flex-basis: 100%; text-align: right; }
+}
+
 .primary-btn {
   padding: 11px 22px; background: var(--accent); color: #fff;
   border: none; border-radius: 10px; font-size: 15px; font-weight: 600; cursor: pointer;
