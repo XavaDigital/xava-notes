@@ -1308,6 +1308,75 @@ function createNotebook() {
 
 // --- Editor -------------------------------------------------------------
 
+// --- Recently-used notebooks (for the editor quick-pick badges) ---------
+
+const LS_RECENT_NB = 'xn.recentNotebooks';
+
+function recentNotebooks() {
+  try { return JSON.parse(localStorage.getItem(LS_RECENT_NB) || '[]'); }
+  catch { return []; }
+}
+
+// Record a notebook as most-recently-used (front of the list, de-duplicated).
+function touchRecentNotebook(name) {
+  if (!name) return;
+  const list = recentNotebooks().filter((n) => n.toLowerCase() !== name.toLowerCase());
+  list.unshift(name);
+  try { localStorage.setItem(LS_RECENT_NB, JSON.stringify(list.slice(0, 12))); } catch {}
+}
+
+// The top few notebooks to offer as one-tap badges, excluding `exclude`. Uses
+// the explicit recents list, then falls back to notebooks drawn from existing
+// notes (most-recently-updated first) so the badges are useful from day one.
+function quickPickNotebooks(exclude, limit = 3) {
+  const seen = new Set();
+  const out = [];
+  const add = (name) => {
+    if (!name) return;
+    const k = name.toLowerCase();
+    if (k === (exclude || '').toLowerCase() || seen.has(k)) return;
+    seen.add(k); out.push(name);
+  };
+  recentNotebooks().forEach(add);
+  if (out.length < limit) {
+    const byRecency = state.notes
+      .filter((n) => n.notebook && !n.deleted)
+      .sort((a, b) => (b.updated || '').localeCompare(a.updated || ''));
+    for (const n of byRecency) { add(n.notebook); if (out.length >= limit) break; }
+  }
+  return out.slice(0, limit);
+}
+
+// Editor quick-pick badges: with no notebook set, show the top recents as
+// ghosted one-tap badges; once one is applied, show just that notebook as a
+// full-colour, tap-to-clear badge (only one notebook per note).
+function renderNotebookQuickPicks(note) {
+  const box = $('#notebookQuick');
+  if (!box) return;
+  const applied = note.notebook || '';
+  let html;
+  if (applied) {
+    html = `<button type="button" class="nb-quick active" data-nb="${escapeAttr(applied)}">` +
+      `&#128214; ${escapeHtml(applied)} <span class="nb-quick-x" aria-hidden="true">&times;</span></button>`;
+  } else {
+    html = quickPickNotebooks('')
+      .map((n) => `<button type="button" class="nb-quick" data-nb="${escapeAttr(n)}">&#128214; ${escapeHtml(n)}</button>`)
+      .join('');
+  }
+  box.innerHTML = html;
+  box.hidden = !html;
+  box.querySelectorAll('.nb-quick').forEach((btn) => {
+    btn.addEventListener('click', (e) => {
+      // The badge sits inside the field's <label>, so without this the click is
+      // forwarded to activate the <select>, which undoes the change.
+      e.preventDefault();
+      note.notebook = btn.classList.contains('active') ? '' : btn.dataset.nb;
+      renderNotebookSelect(note);      // keep the dropdown in sync
+      renderNotebookQuickPicks(note);  // ghost badges <-> applied badge
+    });
+  });
+}
+
 function renderNotebookSelect(note) {
   const sel = $('#notebookSelect');
   if (!sel) return;
@@ -1331,6 +1400,7 @@ function openEditor(note, { edit = false } = {}) {
   $('#bodyInput').value = note.body || '';
   setMdMode(false); // open in styled (WYSIWYG) mode
   renderNotebookSelect(note);
+  renderNotebookQuickPicks(note);
   $('#dueInput').value = note.due || '';
   $('#doneInput').checked = !!note.done;
   // "Save & email" only makes sense on first save — hide it once the item
@@ -1855,6 +1925,7 @@ async function saveEditor(email = false) {
       setStatus('Save cancelled — reopen to see the other version', true);
       return; // keep the editor open with the user's text
     }
+    if (n.notebook) touchRecentNotebook(n.notebook); // feed the quick-pick badges
     // Refresh in-memory list from cache.
     state.notes = await store.cachedNotes();
     render();
@@ -2083,7 +2154,13 @@ function wireEvents() {
     const name = createNotebook();
     if (!name) return;
     const note = state.current;
-    if (note) { note.notebook = name; renderNotebookSelect(note); }
+    if (note) { note.notebook = name; renderNotebookSelect(note); renderNotebookQuickPicks(note); }
+  });
+  $('#notebookSelect').addEventListener('change', () => {
+    const note = state.current;
+    if (!note) return;
+    note.notebook = $('#notebookSelect').value || '';
+    renderNotebookQuickPicks(note); // reflect the choice in the quick-pick badges
   });
   $('#syncBtn').addEventListener('click', refresh);
   $('#sortBtn').addEventListener('click', () => {

@@ -546,6 +546,24 @@ body {
 }
 .date-row { display: flex; align-items: center; gap: 10px; }
 .date-row input { flex: 1; }
+
+/* Quick-pick notebook badges in the editor: ghosted one-tap shortcuts for the
+   most-recently-used notebooks; the applied one shows full-colour and clears
+   on tap (one notebook per note). */
+.nb-quick-row { display: flex; flex-wrap: wrap; gap: 6px; }
+.nb-quick {
+  font-size: 13px; font-family: inherit; cursor: pointer;
+  color: var(--muted); background: transparent;
+  border: 1px dashed var(--border); border-radius: 999px;
+  padding: 4px 12px; opacity: 0.85;
+}
+.nb-quick:hover { border-color: var(--accent); color: var(--accent); opacity: 1; }
+.nb-quick.active {
+  color: #fff; background: var(--accent);
+  border: 1px solid var(--accent); opacity: 1;
+}
+.nb-quick-x { margin-left: 2px; opacity: 0.8; font-weight: 700; }
+.sheet.readonly #notebookQuick { display: none; }
 .done-field { flex-direction: row; align-items: center; gap: 10px; }
 .done-field input { width: 20px; height: 20px; }
 
