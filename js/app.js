@@ -1359,7 +1359,9 @@ function renderNotebookQuickPicks(note) {
     html = `<button type="button" class="nb-quick active" data-nb="${escapeAttr(applied)}">` +
       `&#128214; ${escapeHtml(applied)} <span class="nb-quick-x" aria-hidden="true">&times;</span></button>`;
   } else {
-    html = quickPickNotebooks('')
+    // Most-recent-first from quickPickNotebooks, but displayed reversed so the
+    // most recent sits on the right (nearest the dropdown / thumb).
+    html = quickPickNotebooks('').reverse()
       .map((n) => `<button type="button" class="nb-quick" data-nb="${escapeAttr(n)}">&#128214; ${escapeHtml(n)}</button>`)
       .join('');
   }
@@ -1911,7 +1913,8 @@ async function saveEditor(email = false) {
   collectEditor();
   const n = state.current;
   // Email only on first save (creation) — never on later edits.
-  const emailNow = email && !n.fileId;
+  const wasNew = !n.fileId;
+  const emailNow = email && wasNew;
   if (!n.title && !n.body.trim() && !(n.subtasks || []).length && !(n.attachments || []).length) {
     closeEditor();
     return;
@@ -1928,8 +1931,19 @@ async function saveEditor(email = false) {
     if (n.notebook) touchRecentNotebook(n.notebook); // feed the quick-pick badges
     // Refresh in-memory list from cache.
     state.notes = await store.cachedNotes();
+    const pending = res.status === 'pending';
+    // A newly-added item filed in a notebook: jump to that notebook so the user
+    // can see it landed there (otherwise it vanishes from the current view with
+    // no confirmation). Set the scope directly rather than via selectNotebook()
+    // so we don't double-close the editor overlay.
+    if (wasNew && n.notebook) {
+      state.inbox = false; state.notebook = n.notebook;
+      state.trash = false; state.completed = false;
+      setStatus(pending ? `Saved to ${n.notebook} — will sync to Drive` : `Added to ${n.notebook}`, pending);
+    } else {
+      setStatus(pending ? 'Saved on this device — will sync to Drive' : '', pending);
+    }
     render();
-    setStatus(res.status === 'pending' ? 'Saved on this device — will sync to Drive' : '', res.status === 'pending');
     closeEditor();
     if (emailNow) emailNoteCopy(n); // best-effort; updates the status itself
   } catch (err) {
