@@ -275,10 +275,21 @@ body {
 /* Status banner */
 .status {
   position: fixed; left: 50%; transform: translateX(-50%);
-  bottom: calc(86px + var(--safe-bottom)); z-index: 7;
+  bottom: calc(86px + var(--safe-bottom)); z-index: 55; /* above the editor sheet (50), below dialogs (60) */
   background: var(--surface-2); color: var(--text);
   border: 1px solid var(--border); border-radius: 999px;
   padding: 8px 16px; font-size: 14px; max-width: 90vw;
+}
+/* Success confirmation (e.g. after emailing) — green + a little pop so it's
+   clearly noticed even though it appears for only a moment. */
+.status.status-success {
+  background: #163124; border-color: #2f8f52; color: #86e6ab;
+  font-weight: 600; padding: 10px 20px; font-size: 15px;
+  animation: toast-pop 0.22s ease-out;
+}
+@keyframes toast-pop {
+  from { transform: translateX(-50%) scale(0.85); opacity: 0; }
+  to   { transform: translateX(-50%) scale(1); opacity: 1; }
 }
 
 /* Multi-select */

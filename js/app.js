@@ -1405,11 +1405,10 @@ function openEditor(note, { edit = false } = {}) {
   renderNotebookQuickPicks(note);
   $('#dueInput').value = note.due || '';
   $('#doneInput').checked = !!note.done;
-  // "Save & email" only makes sense on first save — hide it once the item
-  // exists; a saved item gets a plain "Email" action instead (works any time,
-  // including from the read-only view).
-  $$('.btn-save-email').forEach((b) => { b.hidden = !!note.fileId; });
-  $$('.btn-email').forEach((b) => { b.hidden = !note.fileId; });
+  // "Email" is always available — it sends the current note/task to you
+  // straight away, whether or not it's been saved (works from the read-only
+  // view too, since the read-only CSS keeps it visible).
+  $$('.btn-email').forEach((b) => { b.hidden = false; });
   note.tags = note.tags || [];
   renderTags(note);
   setType(note.type);
@@ -1909,12 +1908,10 @@ function collectEditor() {
   // n.tags is maintained live by the tag picker.
 }
 
-async function saveEditor(email = false) {
+async function saveEditor() {
   collectEditor();
   const n = state.current;
-  // Email only on first save (creation) — never on later edits.
   const wasNew = !n.fileId;
-  const emailNow = email && wasNew;
   if (!n.title && !n.body.trim() && !(n.subtasks || []).length && !(n.attachments || []).length) {
     closeEditor();
     return;
@@ -1945,7 +1942,6 @@ async function saveEditor(email = false) {
     }
     render();
     closeEditor();
-    if (emailNow) emailNoteCopy(n); // best-effort; updates the status itself
   } catch (err) {
     setStatus(`Save failed: ${err.message}`, true);
   } finally {
@@ -1960,6 +1956,10 @@ async function emailCurrentNote() {
   const n = state.current;
   if (!n) return;
   if (state.editing) collectEditor();
+  if (!n.title && !n.body.trim() && !(n.subtasks || []).length) {
+    setStatus('Nothing to email yet — add a title or some text', true);
+    return;
+  }
   const btns = $$('.btn-email');
   btns.forEach((b) => { b.classList.add('loading'); b.disabled = true; });
   try {
@@ -1969,13 +1969,15 @@ async function emailCurrentNote() {
   }
 }
 
-// Email a copy of a saved item to the user, via the Worker (which holds the
-// Mailgun key). Best-effort and self-reporting.
+// Email the note/task to the user, via the Worker (which holds the Mailgun
+// key). Sends the current content as-is — no save required. Shows a sending
+// state and a clear success confirmation, since the request is near-instant.
 async function emailNoteCopy(note) {
   if (!relayReady()) {
-    setStatus('Saved — connect to the backend to email a copy', true);
+    setStatus('Connect the backend to email this to you', true);
     return;
   }
+  setStatus('Emailing…', true, true); // sticky + spinner until we hear back
   try {
     const res = await apiFetch('/notify', {
       method: 'POST',
@@ -1989,9 +1991,9 @@ async function emailNoteCopy(note) {
       }),
     });
     if (!res.ok) throw new Error(`${res.status}: ${(await res.text()).slice(0, 160)}`);
-    setStatus('Saved and emailed a copy to you');
+    flashToast('✓ Emailed to you', 'success');
   } catch (err) {
-    setStatus(`Saved, but the email failed: ${err.message}`, true);
+    setStatus(`Email failed: ${err.message}`, true);
   }
 }
 
@@ -2211,8 +2213,7 @@ function wireEvents() {
   // Editor
   $('#editorBack').addEventListener('click', closeEditor);
   $$('.btn-edit').forEach((b) => b.addEventListener('click', () => { setEditing(true); $('#bodyEditor').focus(); }));
-  $$('.btn-save').forEach((b) => b.addEventListener('click', () => saveEditor(false)));
-  $$('.btn-save-email').forEach((b) => b.addEventListener('click', () => saveEditor(true)));
+  $$('.btn-save').forEach((b) => b.addEventListener('click', () => saveEditor()));
   $$('.btn-email').forEach((b) => b.addEventListener('click', emailCurrentNote));
   $('#editorDelete').addEventListener('click', deleteEditor);
   $('#typeNote').addEventListener('click', () => setType('note'));
@@ -2381,10 +2382,24 @@ function showDialog({ title, message, actions }) {
 }
 
 let statusTimer;
+// A prominent, self-dismissing confirmation toast (distinct from the plain
+// status line) — used for success feedback like emailing, which is so fast the
+// user can't otherwise tell it worked.
+function flashToast(msg, kind = '') {
+  const el = $('#status');
+  if (!el) return;
+  el.className = 'status' + (kind ? ` status-${kind}` : '');
+  el.textContent = msg;
+  el.hidden = false;
+  clearTimeout(statusTimer);
+  statusTimer = setTimeout(() => { el.hidden = true; el.className = 'status'; }, 3200);
+}
+
 function setStatus(msg, sticky = false, spin = false) {
   const el = $('#status');
   if (!el) return;
   if (!msg) { el.hidden = true; return; }
+  el.className = 'status'; // clear any lingering variant (e.g. success)
   el.innerHTML = '';
   if (spin) {
     const s = document.createElement('span');
