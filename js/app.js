@@ -142,6 +142,14 @@ async function boot() {
     console.warn('Xava Notes: init failed', e);
   }
 
+  // Reopen whatever was in the editor when the page went away, before the
+  // (possibly slow) Drive refresh — the text should be back immediately. Skipped
+  // when Settings is about to open (no client id) or on a share-sheet launch,
+  // since both open a sheet of their own.
+  if (getClientId() && !new URLSearchParams(location.search).has('shared')) {
+    restoreDraft();
+  }
+
   // If we already have a client id, try a silent connect + refresh.
   if (getClientId()) {
     try {
@@ -1303,8 +1311,9 @@ function renderNotebookSelect(note) {
   sel.innerHTML = html;
 }
 
-function openEditor(note, { edit = false } = {}) {
+function openEditor(note, { edit = false, draft = null } = {}) {
   state.current = note;
+  resetEditorSession(note, draft);
   $('#titleInput').value = note.title || '';
   $('#bodyEditor').innerHTML = mdToHtml(note.body || '');
   $('#bodyInput').value = note.body || '';
@@ -1312,21 +1321,22 @@ function openEditor(note, { edit = false } = {}) {
   renderNotebookSelect(note);
   $('#dueInput').value = note.due || '';
   $('#doneInput').checked = !!note.done;
-  // "Save & email" only makes sense on first save — hide it once the item exists.
-  $$('.btn-save-email').forEach((b) => { b.hidden = !!note.fileId; });
+  // "Save & email" only makes sense on first save. Keyed off "was new when
+  // opened", not note.fileId — an autosave sets fileId mid-edit, and the button
+  // disappearing while you type would be baffling.
+  $$('.btn-save-email').forEach((b) => { b.hidden = !editorWasNew; });
   note.tags = note.tags || [];
   renderTags(note);
   setType(note.type);
   renderSubtasks(note);
   renderAttachments(note);
-  $('#editorMeta').textContent = note.fileId
-    ? `Edited ${formatWhen(note.updated)}`
-    : 'New';
+  setEditorMeta(editorWasNew ? 'New' : `Edited ${formatWhen(note.updated)}`);
+  baselineEditorSnapshot(note, draft);
   // New notes open editable; existing notes open read-only to avoid accidental
   // edits, with an Edit button to switch.
   setEditing(edit || !note.fileId);
   show('#editor');
-  openOverlay(doCloseEditor);
+  openOverlay(handleEditorClose);
   if (state.editing && !note.title) $('#titleInput').focus();
 }
 
@@ -1349,6 +1359,7 @@ function setType(type) {
   $('#typeNote').classList.toggle('active', type === 'note');
   $('#typeTask').classList.toggle('active', type === 'task');
   $('#taskFields').hidden = type !== 'task';
+  markEditorDirty(); // no-op while the editor is opening (editing is off)
 }
 
 // --- Body formatting (WYSIWYG + raw Markdown) --------------------------
@@ -1380,6 +1391,7 @@ function currentBodyMarkdown() {
 }
 
 function applyFormat(fmt) {
+  markEditorDirty(); // toolbar edits don't fire an input event
   if (!inMdMode()) { richFormat(fmt); return; }
   const ta = $('#bodyInput');
   if (!ta || ta.hidden) return;
@@ -1500,6 +1512,7 @@ function renderSubtasks(note) {
     });
     const input = li.querySelector('.subtask-text');
     input.addEventListener('input', (e) => { st.text = e.target.value; });
+    // (the checkbox/text edits above also bubble to the editor's dirty listener)
     // Paste or drop a bullet/numbered list to add many subtasks at once.
     input.addEventListener('paste', (e) => addSubtasksFromLines(note, st, clipboardLines(e), e));
     input.addEventListener('drop', (e) => {
@@ -1509,6 +1522,7 @@ function renderSubtasks(note) {
     li.querySelector('.remove').addEventListener('click', () => {
       note.subtasks.splice(i, 1);
       renderSubtasks(note);
+      markEditorDirty();
     });
     ul.appendChild(li);
   });
@@ -1587,6 +1601,7 @@ function renderAttachments(note) {
       blobUrlCache.delete(att.id);
       note.attachments.splice(i, 1);
       renderAttachments(note);
+      markEditorDirty();
     });
 
     wrap.appendChild(item);
@@ -1611,6 +1626,7 @@ async function handleAttachFiles(files) {
         size: Number(meta.size) || file.size || 0,
       });
       renderAttachments(note);
+      markEditorDirty();
     } catch (err) {
       setStatus(`Upload failed: ${err.message}`, true);
       return;
@@ -1733,6 +1749,7 @@ function renderTags(note) {
     chip.querySelector('.chip-x').addEventListener('click', () => {
       note.tags = note.tags.filter((x) => x !== t);
       renderTags(note);
+      markEditorDirty();
     });
     chips.appendChild(chip);
   });
@@ -1753,6 +1770,7 @@ function addTag(raw) {
     note.tags.push(final);
   }
   renderTags(note);
+  markEditorDirty();
   // Keep focus so you can add several tags in a row; refresh the (focused)
   // suggestion list to show what's left.
   $('#tagInput').focus();
@@ -1801,9 +1819,15 @@ function renderTagSuggest(query) {
   box.hidden = false;
 }
 
-function collectEditor() {
-  commitPendingTag(); // fold any uncommitted text in the tag box into tags
-  const n = state.current;
+// Read the editor's fields into a note object.
+//
+// `commitTags: false` is used by the draft/autosave path: commitPendingTag()
+// re-renders the tag picker and pulls focus back to the tag box, which would
+// interrupt you mid-sentence if it ran on a timer. `into` writes to a throwaway
+// copy instead of the live note (used to baseline change detection).
+function collectEditor({ commitTags = true, into = null } = {}) {
+  if (commitTags) commitPendingTag(); // fold uncommitted tag-box text into tags
+  const n = into || state.current;
   n.title = $('#titleInput').value.trim();
   n.body = currentBodyMarkdown();
   n.notebook = $('#notebookSelect').value || '';
@@ -1813,13 +1837,270 @@ function collectEditor() {
   // n.tags is maintained live by the tag picker.
 }
 
+// Is there anything in the editor worth keeping?
+function editorIsEmpty(n) {
+  return !n.title && !(n.body || '').trim()
+    && !(n.subtasks || []).length && !(n.attachments || []).length;
+}
+
+// --- Autosave -----------------------------------------------------------
+// Two layers stop the editor from losing work:
+//
+//   1. Draft snapshot — 1s after you stop typing, the live editor contents go
+//      into localStorage. Local and synchronous, so a refresh, a crash or a
+//      backgrounded tab can't lose them; reopened automatically on next load.
+//   2. Real save — 10s after you stop typing, the note is saved for real
+//      (cache + Drive) through the same path as the Save button.
+//
+// Both only run while the editor is in edit mode. Closing the editor without
+// pressing Save keeps the edits on an existing note (they're already written),
+// and moves a half-written *new* note to Trash, where it stays recoverable.
+
+const DRAFT_DELAY = 1000;
+const AUTOSAVE_DELAY = 10000;
+const LS_DRAFT = 'xn.draft';
+
+let draftTimer = null;
+let autosaveTimer = null;
+let autosaveInFlight = false;
+let editorWasNew = false;      // the note had never been saved when the editor opened
+let editorDirty = false;       // changed since the last save (auto or manual)
+let autosavePaused = false;    // conflict hit — leave it to the explicit save
+
+// Everything an autosave would write; compared to skip no-op saves.
+function editorSnapshot(n) {
+  return JSON.stringify([
+    n.title, n.body, n.type, n.notebook, n.due, n.done,
+    n.tags, n.subtasks, n.attachments,
+  ]);
+}
+let lastSavedSnapshot = '';
+
+// Called by every edit in the editor; (re)arms both timers.
+function markEditorDirty() {
+  if (!state.current || !state.editing) return;
+  editorDirty = true;
+  clearTimeout(draftTimer);
+  clearTimeout(autosaveTimer);
+  draftTimer = setTimeout(writeDraft, DRAFT_DELAY);
+  if (!autosavePaused) autosaveTimer = setTimeout(autosaveNow, AUTOSAVE_DELAY);
+}
+
+function stopAutosaveTimers() {
+  clearTimeout(draftTimer);
+  clearTimeout(autosaveTimer);
+  draftTimer = autosaveTimer = null;
+}
+
+// Reset the per-session autosave flags. Called when the editor opens.
+function resetEditorSession(note, draft = null) {
+  stopAutosaveTimers();
+  // Editing off until openEditor's setEditing() call decides: it keeps the
+  // field renders that follow from registering as edits and arming the timers.
+  state.editing = false;
+  editorWasNew = draft ? !!draft.wasNew : !note.fileId;
+  editorDirty = !!draft;
+  autosavePaused = false;
+  autosaveInFlight = false;
+  lastSavedSnapshot = '';
+}
+
+// Record what "unchanged" looks like, once the editor's fields are populated.
+// Taken through collectEditor on a throwaway copy so the body's
+// Markdown -> HTML -> Markdown round-trip doesn't register as an edit — without
+// this, opening a note, pressing Edit and leaving would rewrite it.
+function baselineEditorSnapshot(note, draft) {
+  if (draft) { lastSavedSnapshot = ''; return; } // restored text always needs saving
+  const probe = { ...note };
+  collectEditor({ commitTags: false, into: probe });
+  lastSavedSnapshot = editorSnapshot(probe);
+}
+
+// --- Draft snapshot (layer 1) -------------------------------------------
+
+function writeDraft() {
+  if (!state.current || !state.editing) return;
+  collectEditor({ commitTags: false });
+  const n = state.current;
+  // Don't leave a draft for an editor you've emptied out.
+  if (editorIsEmpty(n) && !$('#tagInput').value.trim()) { clearDraft(); return; }
+  try {
+    localStorage.setItem(LS_DRAFT, JSON.stringify({
+      v: 1,
+      savedAt: new Date().toISOString(),
+      wasNew: editorWasNew,
+      mdMode: inMdMode(),
+      pendingTag: $('#tagInput').value, // a half-typed tag survives too
+      note: n,
+    }));
+  } catch { /* quota or private mode — the 10s autosave still covers us */ }
+}
+
+function readDraft() {
+  try {
+    const raw = localStorage.getItem(LS_DRAFT);
+    if (!raw) return null;
+    const d = JSON.parse(raw);
+    return d && d.note && d.note.id ? d : null;
+  } catch { return null; }
+}
+
+function clearDraft() {
+  try { localStorage.removeItem(LS_DRAFT); } catch {}
+}
+
+// On startup, reopen whatever was in the editor when the page went away.
+function restoreDraft() {
+  const draft = readDraft();
+  if (!draft) return false;
+  openEditor(draft.note, { edit: true, draft });
+  if (draft.mdMode) setMdMode(true);
+  if (draft.pendingTag) $('#tagInput').value = draft.pendingTag;
+  markEditorDirty(); // arm autosave so the restored text gets written for real
+  setStatus('Restored what you were writing', true);
+  return true;
+}
+
+// --- Real autosave (layer 2) --------------------------------------------
+
+async function autosaveNow() {
+  if (!state.current || !state.editing || autosaveInFlight || autosavePaused) return;
+  collectEditor({ commitTags: false });
+  const n = state.current;
+  if (editorIsEmpty(n)) return; // nothing worth creating a file for yet
+  const snapshot = editorSnapshot(n);
+  if (snapshot === lastSavedSnapshot) return; // no real change since the last save
+
+  autosaveInFlight = true;
+  try {
+    // A conflict dialog must never appear mid-sentence, so autosave declines to
+    // resolve one: it stops for this session and the explicit save (or the
+    // save on close) prompts properly.
+    const res = await store.saveNote(n, { onConflict: () => 'cancel' });
+    // The editor may have been closed while the save was in flight — the close
+    // path (keep / move to Trash) owns the note from that point on.
+    if (state.current !== n) return;
+    if (res.status === 'cancelled') {
+      autosavePaused = true;
+      setStatus('Autosave paused — this item changed on another device. Press Save to sort it out.', true);
+      return;
+    }
+    editorDirty = false;
+    lastSavedSnapshot = snapshot;
+    // The file now exists, so the list should show it.
+    state.notes = await store.cachedNotes();
+    render();
+    setEditorMeta(res.status === 'pending'
+      ? 'Autosaved on this device'
+      : `Autosaved ${formatWhen(n.updated)}`);
+    writeDraft(); // keep the draft in step with what was saved
+  } catch (err) {
+    console.warn('Xava Notes: autosave failed, will retry —', err?.message || err);
+  } finally {
+    autosaveInFlight = false;
+  }
+}
+
+function setEditorMeta(text) {
+  const el = $('#editorMeta');
+  if (el) el.textContent = text;
+}
+
+// --- Closing the editor -------------------------------------------------
+
+// Why the editor is closing. Reset to 'cancel' after each close so the Android
+// back gesture (which closes via popstate, not a button) gets cancel handling.
+let editorCloseReason = 'cancel';
+
+function closeEditorWith(reason) {
+  editorCloseReason = reason;
+  closeEditor();
+}
+
+// Single close path: the back button, the back gesture, Save and Delete all
+// land here via the overlay.
+function handleEditorClose() {
+  const note = state.current;
+  const reason = editorCloseReason;
+  editorCloseReason = 'cancel';
+
+  // Fold what's on screen into the note before the fields are torn down, and
+  // work out whether it actually differs from the last save (markEditorDirty
+  // fires on keystrokes that may cancel each other out).
+  let changed = false;
+  if (note && reason === 'cancel' && state.editing) {
+    collectEditor();
+    changed = editorSnapshot(note) !== lastSavedSnapshot;
+  }
+
+  stopAutosaveTimers(); // after collectEditor — committing a tag re-arms them
+  clearDraft();
+  doCloseEditor();
+  if (reason === 'cancel' && note) {
+    finishCancelledEdit({ note, wasNew: editorWasNew, changed });
+  }
+}
+
+// Leaving the editor without pressing Save.
+async function finishCancelledEdit({ note, wasNew, changed }) {
+  // A new note you walked away from. It goes to Trash rather than the list:
+  // recoverable if leaving was a mistake, out of the way if it wasn't. (Trash
+  // rather than nothing, because autosave may already have written it to Drive.)
+  if (wasNew) {
+    if (editorIsEmpty(note)) {
+      // Nothing left in it. If an autosave already wrote it, remove it outright
+      // — an empty note has nothing worth recovering from Trash.
+      const persisted = note.fileId || state.notes.some((n) => n.id === note.id);
+      if (!persisted) return;
+      try {
+        await store.purgeNote(note);
+        state.notes = await store.cachedNotes();
+        render();
+      } catch (err) {
+        console.warn('Xava Notes: could not remove the emptied note —', err?.message || err);
+      }
+      return;
+    }
+    try {
+      await store.softDeleteNote(note);
+      state.notes = await store.cachedNotes();
+      render();
+      setStatus('Unfinished note moved to Trash');
+    } catch (err) {
+      setStatus(`Couldn't tidy up the unfinished note: ${err.message}`, true);
+    }
+    return;
+  }
+
+  // An existing note: edits are permanent, so flush anything typed since the
+  // last autosave instead of dropping it.
+  if (!changed) return;
+  try {
+    const res = await store.saveNote(note, { onConflict: conflictPrompt });
+    if (res.status === 'cancelled') {
+      setStatus('Your edits were kept on this device but not written to Drive', true);
+    } else {
+      setStatus(res.status === 'pending' ? 'Saved on this device — will sync to Drive' : 'Saved');
+    }
+    state.notes = await store.cachedNotes();
+    render();
+  } catch (err) {
+    setStatus(`Save failed: ${err.message}`, true);
+  }
+}
+
 async function saveEditor(email = false) {
+  stopAutosaveTimers(); // don't let a queued autosave race this one
   collectEditor();
   const n = state.current;
-  // Email only on first save (creation) — never on later edits.
-  const emailNow = email && !n.fileId;
-  if (!n.title && !n.body.trim() && !(n.subtasks || []).length && !(n.attachments || []).length) {
-    closeEditor();
+  // Email only on first save (creation) — never on later edits. "First save"
+  // means the note was new when the editor opened; an autosave may already have
+  // given it a fileId since.
+  const emailNow = email && editorWasNew;
+  if (editorIsEmpty(n)) {
+    // Nothing left in it. Close as a cancel so an autosaved-then-emptied new
+    // note gets tidied into Trash rather than left behind.
+    closeEditorWith('cancel');
     return;
   }
   const saveBtns = $$('.btn-save, .btn-save-email');
@@ -1829,16 +2110,18 @@ async function saveEditor(email = false) {
     const res = await store.saveNote(n, { onConflict: conflictPrompt });
     if (res.status === 'cancelled') {
       setStatus('Save cancelled — reopen to see the other version', true);
+      markEditorDirty(); // keep protecting the text that's still on screen
       return; // keep the editor open with the user's text
     }
     // Refresh in-memory list from cache.
     state.notes = await store.cachedNotes();
     render();
     setStatus(res.status === 'pending' ? 'Saved on this device — will sync to Drive' : '', res.status === 'pending');
-    closeEditor();
+    closeEditorWith('save');
     if (emailNow) emailNoteCopy(n); // best-effort; updates the status itself
   } catch (err) {
     setStatus(`Save failed: ${err.message}`, true);
+    markEditorDirty(); // failed save — keep the draft alive and retry on idle
   } finally {
     saveBtns.forEach((b) => { b.classList.remove('loading'); b.disabled = false; });
   }
@@ -1886,21 +2169,31 @@ function conflictPrompt() {
 
 async function deleteEditor() {
   const n = state.current;
-  if (!n.fileId) { closeEditor(); return; } // unsaved -> just discard
-  if (!confirm('Move this item to Trash?')) return;
+  stopAutosaveTimers();
+  if (!n.fileId) {
+    // Never reached Drive — discard it. An autosave may still have cached it
+    // locally, so purge rather than leaving an orphan row in the list.
+    try { await store.purgeNote(n); } catch {}
+    state.notes = await store.cachedNotes();
+    render();
+    closeEditorWith('delete');
+    return;
+  }
+  if (!confirm('Move this item to Trash?')) { markEditorDirty(); return; }
   await store.softDeleteNote(n);
   state.notes = await store.cachedNotes();
   render();
-  closeEditor();
+  closeEditorWith('delete');
 }
 
 function doCloseEditor() {
   hide('#editor');
   state.current = null;
+  state.editing = false;
 }
 function closeEditor() {
-  if (overlay) closeOverlayByUser();
-  else doCloseEditor();
+  if (overlay) closeOverlayByUser(); // -> popstate -> handleEditorClose()
+  else handleEditorClose();
 }
 
 // --- Import -------------------------------------------------------------
@@ -2044,7 +2337,7 @@ function wireEvents() {
     const name = createNotebook();
     if (!name) return;
     const note = state.current;
-    if (note) { note.notebook = name; renderNotebookSelect(note); }
+    if (note) { note.notebook = name; renderNotebookSelect(note); markEditorDirty(); }
   });
   $('#syncBtn').addEventListener('click', refresh);
   $('#sortBtn').addEventListener('click', () => {
@@ -2079,7 +2372,12 @@ function wireEvents() {
   });
 
   // Editor
-  $('#editorBack').addEventListener('click', closeEditor);
+  $('#editorBack').addEventListener('click', () => closeEditorWith('cancel'));
+  // Any typing or field change anywhere in the editor arms the autosave timers.
+  // Actions that change the note without firing input/change (toolbar buttons,
+  // tag chips, attachments) call markEditorDirty() themselves.
+  $('#editor').addEventListener('input', markEditorDirty);
+  $('#editor').addEventListener('change', markEditorDirty);
   $$('.btn-edit').forEach((b) => b.addEventListener('click', () => { setEditing(true); $('#bodyEditor').focus(); }));
   $$('.btn-save').forEach((b) => b.addEventListener('click', () => saveEditor(false)));
   $$('.btn-save-email').forEach((b) => b.addEventListener('click', () => saveEditor(true)));
@@ -2091,6 +2389,7 @@ function wireEvents() {
     state.current.subtasks.push({ text: '', done: false });
     setType('task');
     renderSubtasks(state.current);
+    markEditorDirty();
     const inputs = $('#subtaskList').querySelectorAll('.subtask-text');
     inputs[inputs.length - 1]?.focus(); // focus the new row (handy for pasting a list)
   });
@@ -2106,10 +2405,10 @@ function wireEvents() {
   $('#bodyEditor').addEventListener('click', (e) => {
     if (!state.editing) return; // read-only: don't toggle checkboxes
     const cb = e.target.closest('.md-cb');
-    if (cb) cb.classList.toggle('on');
+    if (cb) { cb.classList.toggle('on'); markEditorDirty(); }
   });
 
-  $('#clearDue').addEventListener('click', () => { $('#dueInput').value = ''; });
+  $('#clearDue').addEventListener('click', () => { $('#dueInput').value = ''; markEditorDirty(); });
   $('#attachBtn').addEventListener('click', () => $('#attachInput').click());
   $('#attachInput').addEventListener('change', async (e) => {
     const files = Array.from(e.target.files || []);
@@ -2159,6 +2458,21 @@ function wireEvents() {
   wireDragDrop();
   wireQuickAdd();
 
+  // Losing the page — refresh, tab close, or the app being backgrounded on
+  // mobile — must not lose what's in the editor. Flush the draft synchronously
+  // (localStorage, so it always lands), and warn about edits that haven't made
+  // it into a real save yet. Autosave clears the dirty flag on every 10s pause,
+  // so the warning only appears if you leave mid-sentence.
+  const editorHasUnsavedEdits = () => !!(state.current && state.editing && editorDirty);
+  const flushDraft = () => { if (editorHasUnsavedEdits()) writeDraft(); };
+  window.addEventListener('pagehide', flushDraft);
+  window.addEventListener('beforeunload', (e) => {
+    flushDraft();
+    if (!editorHasUnsavedEdits()) return;
+    e.preventDefault();
+    e.returnValue = ''; // required by older browsers to show the prompt
+  });
+
   window.addEventListener('online', () => { reflectConnection(); refresh(); });
   window.addEventListener('offline', reflectConnection);
 
@@ -2168,9 +2482,11 @@ function wireEvents() {
     try { await signIn(); } catch (err) { setStatus(err.message, true); }
   });
 
-  // Retry unsynced notes when the app regains focus, and periodically.
+  // Retry unsynced notes when the app regains focus, and periodically. Going
+  // hidden is the last reliable moment on mobile, so snapshot the draft there.
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible') { reflectConnection(); quickSync(); }
+    else flushDraft();
   });
   setInterval(quickSync, 60000);
 }
