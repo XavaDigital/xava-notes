@@ -8,3 +8,9 @@ Thumbs.db
 # Local notes / scratch
 *.local
 node_modules/
+
+# Secrets / local config — never commit. deploy.sh also refuses to push if
+# .env ever becomes tracked. (backend/.gitignore covers the Worker's own copy.)
+.env
+.env.*
+!.env.example
