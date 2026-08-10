@@ -275,10 +275,21 @@ body {
 /* Status banner */
 .status {
   position: fixed; left: 50%; transform: translateX(-50%);
-  bottom: calc(86px + var(--safe-bottom)); z-index: 7;
+  bottom: calc(86px + var(--safe-bottom)); z-index: 55; /* above the editor sheet (50), below dialogs (60) */
   background: var(--surface-2); color: var(--text);
   border: 1px solid var(--border); border-radius: 999px;
   padding: 8px 16px; font-size: 14px; max-width: 90vw;
+}
+/* Success confirmation (e.g. after emailing) — green + a little pop so it's
+   clearly noticed even though it appears for only a moment. */
+.status.status-success {
+  background: #163124; border-color: #2f8f52; color: #86e6ab;
+  font-weight: 600; padding: 10px 20px; font-size: 15px;
+  animation: toast-pop 0.22s ease-out;
+}
+@keyframes toast-pop {
+  from { transform: translateX(-50%) scale(0.85); opacity: 0; }
+  to   { transform: translateX(-50%) scale(1); opacity: 1; }
 }
 
 /* Multi-select */
@@ -546,6 +557,24 @@ body {
 }
 .date-row { display: flex; align-items: center; gap: 10px; }
 .date-row input { flex: 1; }
+
+/* Quick-pick notebook badges in the editor: ghosted one-tap shortcuts for the
+   most-recently-used notebooks; the applied one shows full-colour and clears
+   on tap (one notebook per note). */
+.nb-quick-row { display: flex; flex-wrap: wrap; gap: 6px; }
+.nb-quick {
+  font-size: 13px; font-family: inherit; cursor: pointer;
+  color: var(--muted); background: transparent;
+  border: 1px dashed var(--border); border-radius: 999px;
+  padding: 4px 12px; opacity: 0.85;
+}
+.nb-quick:hover { border-color: var(--accent); color: var(--accent); opacity: 1; }
+.nb-quick.active {
+  color: #fff; background: var(--accent);
+  border: 1px solid var(--accent); opacity: 1;
+}
+.nb-quick-x { margin-left: 2px; opacity: 0.8; font-weight: 700; }
+.sheet.readonly #notebookQuick { display: none; }
 .done-field { flex-direction: row; align-items: center; gap: 10px; }
 .done-field input { width: 20px; height: 20px; }
 
@@ -644,6 +673,17 @@ body {
 .sheet.readonly .tag-picker { pointer-events: none; }
 .sheet.readonly .tag-picker { border-color: transparent; padding-left: 0; }
 .editor-meta { color: var(--muted); font-size: 13px; flex: 0 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* On narrow screens the Note/Task switch and the "Edited …" timestamp compete
+   with the action buttons for a single row and squash them. Give each its own
+   row so the buttons keep their full width. */
+@media (max-width: 859px) {
+  .sheet-head { flex-wrap: wrap; }
+  .sheet-head .type-toggle { order: 3; flex-basis: 100%; justify-content: center; }
+
+  .sheet-foot { flex-wrap: wrap; }
+  .sheet-foot .editor-meta { order: -1; flex-basis: 100%; text-align: right; }
+}
 
 .primary-btn {
   padding: 11px 22px; background: var(--accent); color: #fff;

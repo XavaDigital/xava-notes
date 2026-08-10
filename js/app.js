@@ -144,11 +144,17 @@ async function boot() {
 
   // Reopen whatever was in the editor when the page went away, before the
   // (possibly slow) Drive refresh — the text should be back immediately. Skipped
-  // when Settings is about to open (no client id) or on a share-sheet launch,
-  // since both open a sheet of their own.
-  if (getClientId() && !new URLSearchParams(location.search).has('shared')) {
-    restoreDraft();
-  }
+  // only when Settings is about to open (no client id), which needs the sheet.
+  // On a share launch this still runs: handleSharedContent() saves the restored
+  // note before replacing it, so the share can't quietly discard a draft.
+  if (getClientId()) restoreDraft();
+
+  // If launched via the Android share sheet, open the pre-filled note straight
+  // away — don't make the user wait behind a full Drive sync. It manages its own
+  // token (needed only when there are file attachments to upload), so kick it
+  // off before the blocking refresh below and just await it at the end.
+  const sharePending = handleSharedContent().catch((e) =>
+    console.warn('Xava Notes: share handling failed', e));
 
   // If we already have a client id, try a silent connect + refresh.
   if (getClientId()) {
@@ -164,23 +170,36 @@ async function boot() {
     openSettings();
   }
 
-  // If launched via the Android share sheet, open a pre-filled new note.
-  await handleSharedContent();
+  await sharePending;
 }
 
 // Web Share Target: the service worker stashed the shared title/text/url and any
-// files in the 'xn-shared' cache and redirected here with ?shared=1. Build a new
-// note from it, uploading shared files as attachments.
+// files in the 'xn-shared' cache. On a cold start the OS navigates us to
+// ?shared=1; but when the app is *already open* the OS often just focuses the
+// existing window without navigating, so we also get poked via a postMessage
+// from the SW (see registerServiceWorker). Either way we just look for stashed
+// content in the cache and consume it — guarded so the two triggers can't
+// double-process the same share.
+let handlingShare = false;
 async function handleSharedContent() {
-  if (!new URLSearchParams(location.search).has('shared')) return;
-  history.replaceState({}, '', location.pathname); // don't re-trigger on refresh
+  // Clear the boot flag from the URL so a refresh can't re-trigger.
+  if (new URLSearchParams(location.search).has('shared')) {
+    history.replaceState({}, '', location.pathname);
+  }
+  if (handlingShare) return;
 
-  let meta = { title: '', text: '', url: '', files: [] };
+  let meta = null;
   const files = [];
+  let cache;
   try {
-    const cache = await caches.open('xn-shared');
+    cache = await caches.open('xn-shared');
     const metaRes = await cache.match('./shared-meta');
-    if (metaRes) meta = await metaRes.json();
+    if (!metaRes) return; // nothing was shared
+    meta = await metaRes.json();
+  } catch (e) { console.warn('Xava Notes: share read failed', e); return; }
+
+  handlingShare = true;
+  try {
     for (const f of meta.files || []) {
       const res = await cache.match(f.key);
       if (res) files.push(new File([await res.blob()], f.name, { type: f.type }));
@@ -212,7 +231,16 @@ async function handleSharedContent() {
     }
     setStatus('');
   }
+  // A share can land while the editor is already open (the SW pokes a live
+  // window), and openEditor() below replaces whatever is on screen. Save that
+  // work first, and drop its draft so it can't resurface later attached to the
+  // wrong note.
+  if (state.current && state.editing) {
+    await autosaveNow();
+    clearDraft();
+  }
   openEditor(n, { edit: true });
+  handlingShare = false;
 }
 
 onAuthChange(async (signed) => {
@@ -1295,6 +1323,78 @@ function createNotebook() {
 
 // --- Editor -------------------------------------------------------------
 
+// --- Recently-used notebooks (for the editor quick-pick badges) ---------
+
+const LS_RECENT_NB = 'xn.recentNotebooks';
+
+function recentNotebooks() {
+  try { return JSON.parse(localStorage.getItem(LS_RECENT_NB) || '[]'); }
+  catch { return []; }
+}
+
+// Record a notebook as most-recently-used (front of the list, de-duplicated).
+function touchRecentNotebook(name) {
+  if (!name) return;
+  const list = recentNotebooks().filter((n) => n.toLowerCase() !== name.toLowerCase());
+  list.unshift(name);
+  try { localStorage.setItem(LS_RECENT_NB, JSON.stringify(list.slice(0, 12))); } catch {}
+}
+
+// The top few notebooks to offer as one-tap badges, excluding `exclude`. Uses
+// the explicit recents list, then falls back to notebooks drawn from existing
+// notes (most-recently-updated first) so the badges are useful from day one.
+function quickPickNotebooks(exclude, limit = 3) {
+  const seen = new Set();
+  const out = [];
+  const add = (name) => {
+    if (!name) return;
+    const k = name.toLowerCase();
+    if (k === (exclude || '').toLowerCase() || seen.has(k)) return;
+    seen.add(k); out.push(name);
+  };
+  recentNotebooks().forEach(add);
+  if (out.length < limit) {
+    const byRecency = state.notes
+      .filter((n) => n.notebook && !n.deleted)
+      .sort((a, b) => (b.updated || '').localeCompare(a.updated || ''));
+    for (const n of byRecency) { add(n.notebook); if (out.length >= limit) break; }
+  }
+  return out.slice(0, limit);
+}
+
+// Editor quick-pick badges: with no notebook set, show the top recents as
+// ghosted one-tap badges; once one is applied, show just that notebook as a
+// full-colour, tap-to-clear badge (only one notebook per note).
+function renderNotebookQuickPicks(note) {
+  const box = $('#notebookQuick');
+  if (!box) return;
+  const applied = note.notebook || '';
+  let html;
+  if (applied) {
+    html = `<button type="button" class="nb-quick active" data-nb="${escapeAttr(applied)}">` +
+      `&#128214; ${escapeHtml(applied)} <span class="nb-quick-x" aria-hidden="true">&times;</span></button>`;
+  } else {
+    // Most-recent-first from quickPickNotebooks, but displayed reversed so the
+    // most recent sits on the right (nearest the dropdown / thumb).
+    html = quickPickNotebooks('').reverse()
+      .map((n) => `<button type="button" class="nb-quick" data-nb="${escapeAttr(n)}">&#128214; ${escapeHtml(n)}</button>`)
+      .join('');
+  }
+  box.innerHTML = html;
+  box.hidden = !html;
+  box.querySelectorAll('.nb-quick').forEach((btn) => {
+    btn.addEventListener('click', (e) => {
+      // The badge sits inside the field's <label>, so without this the click is
+      // forwarded to activate the <select>, which undoes the change.
+      e.preventDefault();
+      note.notebook = btn.classList.contains('active') ? '' : btn.dataset.nb;
+      renderNotebookSelect(note);      // keep the dropdown in sync
+      renderNotebookQuickPicks(note);  // ghost badges <-> applied badge
+      markEditorDirty();               // a badge tap is an edit, so autosave it
+    });
+  });
+}
+
 function renderNotebookSelect(note) {
   const sel = $('#notebookSelect');
   if (!sel) return;
@@ -1319,12 +1419,13 @@ function openEditor(note, { edit = false, draft = null } = {}) {
   $('#bodyInput').value = note.body || '';
   setMdMode(false); // open in styled (WYSIWYG) mode
   renderNotebookSelect(note);
+  renderNotebookQuickPicks(note);
   $('#dueInput').value = note.due || '';
   $('#doneInput').checked = !!note.done;
-  // "Save & email" only makes sense on first save. Keyed off "was new when
-  // opened", not note.fileId — an autosave sets fileId mid-edit, and the button
-  // disappearing while you type would be baffling.
-  $$('.btn-save-email').forEach((b) => { b.hidden = !editorWasNew; });
+  // "Email" is always available — it sends the current note/task to you
+  // straight away, whether or not it's been saved (works from the read-only
+  // view too, since the read-only CSS keeps it visible).
+  $$('.btn-email').forEach((b) => { b.hidden = false; });
   note.tags = note.tags || [];
   renderTags(note);
   setType(note.type);
@@ -2089,14 +2190,14 @@ async function finishCancelledEdit({ note, wasNew, changed }) {
   }
 }
 
-async function saveEditor(email = false) {
+async function saveEditor() {
   stopAutosaveTimers(); // don't let a queued autosave race this one
   collectEditor();
   const n = state.current;
-  // Email only on first save (creation) — never on later edits. "First save"
-  // means the note was new when the editor opened; an autosave may already have
-  // given it a fileId since.
-  const emailNow = email && editorWasNew;
+  // "Was this a brand-new item?" must come from the editor session, not from
+  // n.fileId — an autosave may already have created the file while you typed,
+  // which would otherwise suppress the jump-to-notebook below.
+  const wasNew = editorWasNew;
   if (editorIsEmpty(n)) {
     // Nothing left in it. Close as a cancel so an autosaved-then-emptied new
     // note gets tidied into Trash rather than left behind.
@@ -2113,12 +2214,23 @@ async function saveEditor(email = false) {
       markEditorDirty(); // keep protecting the text that's still on screen
       return; // keep the editor open with the user's text
     }
+    if (n.notebook) touchRecentNotebook(n.notebook); // feed the quick-pick badges
     // Refresh in-memory list from cache.
     state.notes = await store.cachedNotes();
+    const pending = res.status === 'pending';
+    // A newly-added item filed in a notebook: jump to that notebook so the user
+    // can see it landed there (otherwise it vanishes from the current view with
+    // no confirmation). Set the scope directly rather than via selectNotebook()
+    // so we don't double-close the editor overlay.
+    if (wasNew && n.notebook) {
+      state.inbox = false; state.notebook = n.notebook;
+      state.trash = false; state.completed = false;
+      setStatus(pending ? `Saved to ${n.notebook} — will sync to Drive` : `Added to ${n.notebook}`, pending);
+    } else {
+      setStatus(pending ? 'Saved on this device — will sync to Drive' : '', pending);
+    }
     render();
-    setStatus(res.status === 'pending' ? 'Saved on this device — will sync to Drive' : '', res.status === 'pending');
     closeEditorWith('save');
-    if (emailNow) emailNoteCopy(n); // best-effort; updates the status itself
   } catch (err) {
     setStatus(`Save failed: ${err.message}`, true);
     markEditorDirty(); // failed save — keep the draft alive and retry on idle
@@ -2127,14 +2239,35 @@ async function saveEditor(email = false) {
   }
 }
 
-// Email a copy of a just-saved item to the user, via the Worker (which holds the
-// Mailgun key). Best-effort and self-reporting; only fired by "Save & email" on
-// the first save of a new item.
-async function emailNoteCopy(note) {
-  if (!relayReady()) {
-    setStatus('Saved — connect to the backend to email a copy', true);
+// Email the currently-open (already-saved) note to the user on demand. If the
+// editor is in edit mode, capture any in-progress changes first so the email
+// reflects what's on screen (this does not save them to Drive).
+async function emailCurrentNote() {
+  const n = state.current;
+  if (!n) return;
+  if (state.editing) collectEditor();
+  if (!n.title && !n.body.trim() && !(n.subtasks || []).length) {
+    setStatus('Nothing to email yet — add a title or some text', true);
     return;
   }
+  const btns = $$('.btn-email');
+  btns.forEach((b) => { b.classList.add('loading'); b.disabled = true; });
+  try {
+    await emailNoteCopy(n);
+  } finally {
+    btns.forEach((b) => { b.classList.remove('loading'); b.disabled = false; });
+  }
+}
+
+// Email the note/task to the user, via the Worker (which holds the Mailgun
+// key). Sends the current content as-is — no save required. Shows a sending
+// state and a clear success confirmation, since the request is near-instant.
+async function emailNoteCopy(note) {
+  if (!relayReady()) {
+    setStatus('Connect the backend to email this to you', true);
+    return;
+  }
+  setStatus('Emailing…', true, true); // sticky + spinner until we hear back
   try {
     const res = await apiFetch('/notify', {
       method: 'POST',
@@ -2148,9 +2281,9 @@ async function emailNoteCopy(note) {
       }),
     });
     if (!res.ok) throw new Error(`${res.status}: ${(await res.text()).slice(0, 160)}`);
-    setStatus('Saved and emailed a copy to you');
+    flashToast('✓ Emailed to you', 'success');
   } catch (err) {
-    setStatus(`Saved, but the email failed: ${err.message}`, true);
+    setStatus(`Email failed: ${err.message}`, true);
   }
 }
 
@@ -2337,7 +2470,18 @@ function wireEvents() {
     const name = createNotebook();
     if (!name) return;
     const note = state.current;
-    if (note) { note.notebook = name; renderNotebookSelect(note); markEditorDirty(); }
+    if (note) {
+      note.notebook = name;
+      renderNotebookSelect(note);
+      renderNotebookQuickPicks(note);
+      markEditorDirty();
+    }
+  });
+  $('#notebookSelect').addEventListener('change', () => {
+    const note = state.current;
+    if (!note) return;
+    note.notebook = $('#notebookSelect').value || '';
+    renderNotebookQuickPicks(note); // reflect the choice in the quick-pick badges
   });
   $('#syncBtn').addEventListener('click', refresh);
   $('#sortBtn').addEventListener('click', () => {
@@ -2379,8 +2523,8 @@ function wireEvents() {
   $('#editor').addEventListener('input', markEditorDirty);
   $('#editor').addEventListener('change', markEditorDirty);
   $$('.btn-edit').forEach((b) => b.addEventListener('click', () => { setEditing(true); $('#bodyEditor').focus(); }));
-  $$('.btn-save').forEach((b) => b.addEventListener('click', () => saveEditor(false)));
-  $$('.btn-save-email').forEach((b) => b.addEventListener('click', () => saveEditor(true)));
+  $$('.btn-save').forEach((b) => b.addEventListener('click', () => saveEditor()));
+  $$('.btn-email').forEach((b) => b.addEventListener('click', emailCurrentNote));
   $('#editorDelete').addEventListener('click', deleteEditor);
   $('#typeNote').addEventListener('click', () => setType('note'));
   $('#typeTask').addEventListener('click', () => setType('task'));
@@ -2566,10 +2710,24 @@ function showDialog({ title, message, actions }) {
 }
 
 let statusTimer;
+// A prominent, self-dismissing confirmation toast (distinct from the plain
+// status line) — used for success feedback like emailing, which is so fast the
+// user can't otherwise tell it worked.
+function flashToast(msg, kind = '') {
+  const el = $('#status');
+  if (!el) return;
+  el.className = 'status' + (kind ? ` status-${kind}` : '');
+  el.textContent = msg;
+  el.hidden = false;
+  clearTimeout(statusTimer);
+  statusTimer = setTimeout(() => { el.hidden = true; el.className = 'status'; }, 3200);
+}
+
 function setStatus(msg, sticky = false, spin = false) {
   const el = $('#status');
   if (!el) return;
   if (!msg) { el.hidden = true; return; }
+  el.className = 'status'; // clear any lingering variant (e.g. success)
   el.innerHTML = '';
   if (spin) {
     const s = document.createElement('span');
@@ -2621,9 +2779,18 @@ function formatWhen(iso) {
 }
 
 function registerServiceWorker() {
-  if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('sw.js').catch(() => {});
-  }
+  if (!('serviceWorker' in navigator)) return;
+  navigator.serviceWorker.register('sw.js').catch(() => {});
+  // When the app is already open, a fresh share won't reload the page — the SW
+  // pokes us instead so we can consume the stashed content. If the OS instead
+  // navigates this window (launch_handler: navigate-existing), the reload's
+  // boot() consumes it; the short delay lets that path win so we don't race the
+  // teardown. In the focus-only case (no reload) the timer fires and we consume.
+  navigator.serviceWorker.addEventListener('message', (e) => {
+    if (e.data && e.data.type === 'shared') {
+      setTimeout(() => handleSharedContent().catch(() => {}), 250);
+    }
+  });
 }
 
 boot();
