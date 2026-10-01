@@ -4,7 +4,7 @@
 //   - Plain     .md / .txt  (single note)
 //
 // Each importer returns note objects in the app's shape (see note.js). Saving
-// them to Drive is the caller's job.
+// them to the server is the caller's job.
 
 import { emptyNote, noteFromMarkdown, newId } from './note.js';
 
@@ -43,12 +43,11 @@ function isXavaNote(text) {
 export function parseMarkdownFile(filename, text) {
   // Re-importing our own files (e.g. migrating to new credentials): parse the
   // full structure so tags, dates, notebooks and subtasks survive. Give it a
-  // fresh identity so it's created as a new file under the current app, and
-  // drop attachment refs (those Drive ids belong to the previous app).
+  // fresh identity so it's created as a new note, and drop attachment refs
+  // (those ids belong to wherever the file came from).
   if (isXavaNote(text)) {
-    const n = noteFromMarkdown(text, null, filename);
+    const n = noteFromMarkdown(text, filename);
     n.id = newId();
-    n.fileId = null;
     n.attachments = [];
     return n;
   }
@@ -82,7 +81,7 @@ function parseEnex(xml, notebook = '') {
     if (updated) n.updated = updated;
 
     // Collect embedded resources (images/files) as pending attachments. The
-    // caller uploads these to Drive and moves them onto n.attachments.
+    // caller uploads these to the server and moves them onto n.attachments.
     const pending = [];
     for (const res of noteEl.querySelectorAll('resource')) {
       const data = textOf(res.querySelector('data'));

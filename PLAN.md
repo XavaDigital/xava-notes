@@ -4,7 +4,7 @@ Move Xava Notes off Google Drive and the Cloudflare Worker, onto a small Laravel
 
 Written 2026-10-01.
 
-**Progress.** Phase 1 (the server app) is built on the `cloudways` branch and tested on SQLite, MySQL 8 and MariaDB 10.6; not deployed yet. Phases 0 and 2 to 5 are not started.
+**Progress.** Phase 1 (the server app) is built on the `cloudways` branch and tested on SQLite, MySQL 8 and MariaDB 10.6. Phase 2 (the client) is built and tested in a desktop browser against a local server; not yet tried on the phone. Nothing is deployed. Phases 0 and 3 to 5 are not started.
 
 ## Why
 
@@ -91,6 +91,7 @@ All behind the session, all JSON. Writes carry Laravel's `XSRF-TOKEN` cookie bac
 ### Client changes
 
 - `js/store.js`: `writeNoteToDrive`, `relayPut`, `relayDelete`, `refreshFromDrive` and `flushQueue` are replaced by calls to the API above. The dirty flag, `syncPending` and `countPending` stay as they are. The IndexedDB cache stores `version` and the last pulled `rev` instead of `modifiedTime`.
+  - As built: `note.version` replaces `note.fileId` as "the server has this note" (0 until confirmed). Writes to one note are serialised, so an autosave, a background retry and a pull never interleave. A background retry that meets a conflict keeps both (nobody is there to answer the prompt); a save with no conflict handler overwrites, as quick list actions always did. A pull never overwrites a local unsynced edit.
 - `js/drive.js`: removed. The three calls from `js/app.js` into it (`uploadAttachment`, `getBlob`, `trashFile` for attachments) move to a small `js/api.js`.
 - `js/auth.js`: Google sign-in and the relay token are removed. If the session has expired, the app shows the sign-in form; offline edits keep waiting in IndexedDB until then.
 - `js/config.js`: the Google client id, Drive scope, folder name and Worker URL go.
@@ -107,7 +108,7 @@ All behind the session, all JSON. Writes carry Laravel's `XSRF-TOKEN` cookie bac
 
 **Phase 1. The server app. Built, not deployed.** Laravel app, migrations for `notes` and `attachments`, the sign-in form, the API, the `notify` email through Mailgun, and the PWA served from `public/`. PHPUnit tests for: create and update by client id, a repeated save not duplicating, the 409 on a stale `base_version`, the `after=<rev>` pull including soft-deleted and purged notes, and attachments only reachable when signed in. Deployed to the subdomain with an empty database ([DEPLOY.md](DEPLOY.md)).
 
-**Phase 2. The client talks to the server.** The changes to `js/store.js`, `js/auth.js`, `js/config.js` and `sw.js` above, `js/drive.js` replaced by `js/api.js`. Tried on the new subdomain with test notes, including offline on the phone: capture with no signal, reconnect, confirm it lands; edit the same note on two devices and confirm the conflict prompt.
+**Phase 2. The client talks to the server. Built; phone test outstanding.** The changes to `js/store.js`, `js/auth.js`, `js/config.js` and `sw.js` above, `js/drive.js` replaced by `js/api.js`. Tried on the new subdomain with test notes, including offline on the phone: capture with no signal, reconnect, confirm it lands; edit the same note on two devices and confirm the conflict prompt.
 
 **Phase 3. Move the notes.**
 1. Freeze the old app: stop editing on the GitHub Pages version.

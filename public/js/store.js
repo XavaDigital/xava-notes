@@ -1,21 +1,19 @@
-// Local cache + Drive sync layer.
+// Local cache + server sync.
 //
-// - Notes are cached in IndexedDB for instant load and offline reading.
-// - Writes go through the Worker outbox when connected (durable: a per-minute
-//   cron completes anything that doesn't land), else straight to Drive. Failed
-//   writes stay 'dirty' locally and are retried by syncPending().
+// - Notes are cached in IndexedDB for instant load and offline use.
+// - A save goes straight to the server. Until the server confirms it the note
+//   stays 'dirty' locally and syncPending() retries it, so a note captured
+//   with no signal is sent when the connection comes back. Never lose a note.
+// - note.version is the server's version of the copy the note was edited
+//   from (0 = never confirmed). The server answers 409 when another device has
+//   saved a newer one, and the caller's onConflict decides what happens.
+// - Pulls fetch only what changed since the last pull (the server's `rev`).
 
-import * as drive from './drive.js';
-import { relayReady, apiFetch } from './auth.js';
-import {
-  noteToMarkdown,
-  noteFromMarkdown,
-  noteFilename,
-  newId,
-} from './note.js';
+import * as api from './api.js';
+import { newId } from './note.js';
 
 const DB_NAME = 'xava-notes';
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 
 function openDb() {
   return new Promise((resolve, reject) => {
@@ -27,6 +25,10 @@ function openDb() {
       }
       if (!db.objectStoreNames.contains('queue')) {
         db.createObjectStore('queue', { keyPath: 'qid', autoIncrement: true });
+      }
+      // Small key/value store: the last pulled rev.
+      if (!db.objectStoreNames.contains('meta')) {
+        db.createObjectStore('meta', { keyPath: 'k' });
       }
     };
     req.onsuccess = () => resolve(req.result);
@@ -54,6 +56,15 @@ async function idbAll(store) {
   });
 }
 
+async function idbGet(store, key) {
+  const db = await openDb();
+  return new Promise((resolve, reject) => {
+    const req = db.transaction(store).objectStore(store).get(key);
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+
 async function idbPut(store, value) {
   const db = await openDb();
   return tx(db, store, 'readwrite', (os) => os.put(value));
@@ -64,158 +75,149 @@ async function idbDelete(store, key) {
   return tx(db, store, 'readwrite', (os) => os.delete(key));
 }
 
+async function getMeta(k, fallback) {
+  const row = await idbGet('meta', k);
+  return row ? row.v : fallback;
+}
+
+function setMeta(k, v) {
+  return idbPut('meta', { k, v });
+}
+
+// --- Rows -------------------------------------------------------------------
+//
+// A cached row is { id, note, dirty, mine }. `dirty` means the server has not
+// confirmed this content yet. `mine` is the last version this device itself
+// wrote, so a save from a stale copy of a note can tell "the newer version on
+// the server is my own earlier save" (no conflict) from "another device saved".
+
+function putRow(note, dirty, mine) {
+  const { unsynced, rev, purged, ...clean } = note;
+  return idbPut('notes', { id: note.id, note: clean, dirty, mine: mine || 0 });
+}
+
+// One write at a time per note, so an autosave, a background retry and a pull
+// can never interleave on the same note.
+const locks = new Map();
+function withLock(id, fn) {
+  const run = (locks.get(id) || Promise.resolve()).then(fn);
+  const tail = run.catch(() => {});
+  locks.set(id, tail);
+  tail.then(() => { if (locks.get(id) === tail) locks.delete(id); });
+  return run;
+}
+
 // --- Public API ---------------------------------------------------------
 
 export async function cachedNotes() {
   const rows = await idbAll('notes');
   return rows
-    .map((r) => { r.note.unsynced = !!r.dirty || !r.note.fileId; return r.note; })
+    .map((r) => { r.note.unsynced = !!r.dirty || !r.note.version; return r.note; })
     .sort((a, b) => (b.updated || '').localeCompare(a.updated || ''));
 }
 
-function appPropsFor(note) {
-  // The title is NOT stored here: Drive caps each appProperty at 124 bytes
-  // (key + value), which long titles exceed. The full title lives in the file
-  // content (frontmatter + H1) and the filename carries a truncated copy, so a
-  // metadata copy would be redundant — and nothing reads it back anyway.
-  // noteId lets the server-side outbox reconcile a file back to this note (and
-  // stay idempotent on retries) without reading the file's contents.
-  const p = { type: note.type, noteId: note.id };
-  if (note.type === 'task') {
-    p.done = note.done ? '1' : '0';
-    if (note.due) p.due = note.due;
+// Send a note and settle any conflict. Writes the outcome to the cache and
+// returns { status: 'saved' | 'cancelled', note }. Throws when the server
+// can't be reached (or refuses), leaving the note dirty.
+async function push(note, onConflict) {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const res = await api.putNote(note, note.version);
+    if (res.ok) {
+      note.version = res.version;
+      await putRow(note, false, res.version);
+      return { status: 'saved', note };
+    }
+
+    const theirs = res.note;
+    const choice = await onConflict();
+    if (choice === 'cancel') {
+      await keepServerCopy(theirs);
+      return { status: 'cancelled', note };
+    }
+    if (choice === 'keepBoth') {
+      // Theirs keeps the id; ours becomes a new note.
+      await keepServerCopy(theirs);
+      note.id = newId();
+      note.version = 0;
+      await putRow(note, true, 0);
+    } else {
+      // 'overwrite': save on top of the version the server has.
+      note.version = theirs.version;
+      await putRow(note, true, 0);
+    }
   }
-  return p;
+  throw new Error('The note kept changing on another device');
 }
 
-async function baseModifiedTime(fileId) {
-  if (!fileId) return null;
-  const rows = await idbAll('notes');
-  const row = rows.find((r) => r.note.fileId === fileId);
-  return row ? row.modifiedTime : null;
+// Cache the server's copy of a note (a 409's body, or a pulled note).
+async function keepServerCopy(theirs, mine = 0) {
+  if (theirs.purged) return idbDelete('notes', theirs.id);
+  return putRow(theirs, false, mine);
 }
 
-// Write a note's current content to Drive (create or update). Sets note.fileId
-// on first create. Throws on failure.
-async function writeNoteToDrive(note) {
-  const content = noteToMarkdown(note);
-  const name = noteFilename(note);
-  const appProps = appPropsFor(note);
-
-  // When connected to the backend, hand the write to the Worker's outbox: it
-  // writes to Drive with its own refresh token and a per-minute cron retries
-  // anything that doesn't land, so a save survives the app closing. Direct Drive
-  // is the fallback for serverless mode (no backend / not connected yet).
-  if (relayReady()) {
-    const meta = await relayPut(note, name, content, appProps);
-    if (meta.fileId) note.fileId = meta.fileId;
-    return { id: note.fileId, modifiedTime: meta.modifiedTime };
-  }
-
-  if (note.fileId) {
-    return drive.updateFile(note.fileId, name, content, appProps);
-  }
-  const meta = await drive.createFile(name, content, appProps);
-  note.fileId = meta.id;
-  return meta;
-}
-
-// POST a create/update to the Worker outbox. Only a synchronous 200 (the Worker
-// completed the Drive write) counts as success; a 202 means it was queued but
-// not yet confirmed, so we throw to keep the note dirty and let syncPending()
-// retry — the server stays idempotent via the stamped noteId.
-async function relayPut(note, name, content, appProperties) {
-  const res = await apiFetch('/outbox', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ op: 'put', noteId: note.id, fileId: note.fileId || null, name, content, appProperties }),
-  });
-  if (res.status !== 200) {
-    throw new Error(`Relay save not confirmed (${res.status})`);
-  }
-  const data = await res.json(); // { id, status, fileId, modifiedTime }
-  return { fileId: data.fileId || note.fileId || null, modifiedTime: data.modifiedTime || null };
-}
-
-// Trash a Drive file via the Worker outbox (deletes are idempotent, so a queued
-// 202 is fine — the cron will complete it).
-async function relayDelete(fileId) {
-  const res = await apiFetch('/outbox', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ op: 'delete', fileId }),
-  });
-  if (res.status !== 200 && res.status !== 202) {
-    throw new Error(`Relay delete failed (${res.status})`);
-  }
-}
-
-// Save a note (create or update). Optimistically updates the cache marked
-// "dirty"; on success the dirty flag is cleared, and on ANY failure (offline or
+// Save a note (create or update). The cache is updated first, marked dirty;
+// on success the dirty flag is cleared, and on ANY failure (offline or
 // otherwise) the note simply stays dirty and is retried later by syncPending().
 //
-// `onConflict` is called when the file changed on Drive since we loaded it; it
-// should resolve to 'overwrite' | 'keepBoth' | 'cancel'. Returns
+// `onConflict` is called when another device saved the note since this copy
+// was loaded; it should resolve to 'overwrite' | 'keepBoth' | 'cancel'. With
+// no handler the save overwrites, as quick list actions always have. Returns
 // { status: 'saved' | 'pending' | 'cancelled', note }.
 export async function saveNote(note, { onConflict } = {}) {
-  const base = await baseModifiedTime(note.fileId);
+  return withLock(note.id, async () => {
+    const row = await idbGet('notes', note.id);
+    // A copy loaded before this device's own last save carries an older
+    // version; base it on that save rather than conflicting with ourselves.
+    if (row && row.mine && row.note.version === row.mine && row.mine > (note.version || 0)) {
+      note.version = row.mine;
+    }
+    note.version = note.version || 0;
+    note.updated = new Date().toISOString();
+    await putRow(note, true, row?.mine);
 
-  // Conflict detection (only for existing files, when online).
-  if (note.fileId && navigator.onLine) {
     try {
-      const meta = await drive.getMeta(note.fileId);
-      if (base && meta.modifiedTime && meta.modifiedTime !== base) {
-        const choice = onConflict ? await onConflict() : 'overwrite';
-        if (choice === 'cancel') return { status: 'cancelled', note };
-        if (choice === 'keepBoth') { note.fileId = null; note.id = newId(); }
-        // 'overwrite' -> fall through
-      }
-    } catch { /* metadata check failed; proceed with save */ }
-  }
-
-  note.updated = new Date().toISOString();
-
-  // Optimistic local cache update, marked dirty until Drive confirms.
-  await idbPut('notes', { id: note.id, note, modifiedTime: base || note.updated, dirty: true });
-
-  try {
-    const meta = await writeNoteToDrive(note);
-    await idbPut('notes', { id: note.id, note, modifiedTime: meta.modifiedTime || note.updated, dirty: false });
-    return { status: 'saved', note };
-  } catch (err) {
-    // Stays dirty; syncPending() will retry it later. Never lose the note.
-    console.warn('Xava Notes: save deferred, will retry —', err?.message || err);
-    return { status: 'pending', note };
-  }
+      return await push(note, onConflict || (() => 'overwrite'));
+    } catch (err) {
+      // Stays dirty; syncPending() will retry it later. Never lose the note.
+      console.warn('Xava Notes: save deferred, will retry —', err?.message || err);
+      return { status: 'pending', note };
+    }
+  });
 }
 
-// How many cached notes are not yet confirmed on Drive.
+// How many cached notes are not yet confirmed by the server.
 export async function countPending() {
   const rows = await idbAll('notes');
-  return rows.filter((r) => r.dirty || !r.note.fileId).length;
+  return rows.filter((r) => r.dirty || !r.note.version).length;
 }
 
-// Retry writing every dirty note to Drive. Returns { synced, pending }.
+// Retry every note the server hasn't confirmed. Returns { synced, pending }.
+// Nobody is there to answer a conflict prompt, so a conflict keeps both: the
+// other device's version keeps the note, this one becomes a new note.
 export async function syncPending() {
   if (!navigator.onLine) return { synced: 0, pending: await countPending() };
   const rows = await idbAll('notes');
   let synced = 0;
   for (const r of rows) {
-    // Retry anything not confirmed on Drive: dirty edits AND notes that never
-    // got a fileId (e.g. a create whose response was lost). The pending/unsynced
-    // count uses this same condition, so the two must stay in lockstep — else a
-    // note shows "Unsynced" forever while the retry loop quietly skips it.
-    if (!r.dirty && r.note.fileId) continue;
+    // The same condition as countPending/unsynced, so the two stay in lockstep
+    // — else a note shows "Unsynced" forever while this loop quietly skips it.
+    if (!r.dirty && r.note.version) continue;
     try {
-      const meta = await writeNoteToDrive(r.note);
-      await idbPut('notes', { id: r.note.id, note: r.note, modifiedTime: meta.modifiedTime || r.note.updated, dirty: false });
-      synced++;
-    } catch { /* still failing; keep dirty for the next attempt */ }
+      const res = await withLock(r.id, async () => {
+        const cur = await idbGet('notes', r.id); // re-read: it may have moved on
+        if (!cur || (!cur.dirty && cur.note.version)) return null;
+        return push(cur.note, () => 'keepBoth');
+      });
+      if (res) synced++;
+    } catch (err) {
+      // Signed out or offline: the rest would fail the same way.
+      if (err instanceof api.AuthError || isOffline(err)) break;
+    }
   }
   return { synced, pending: await countPending() };
 }
 
-// Soft delete: flag the note as deleted but keep the file on Drive.
+// Soft delete: flag the note as deleted (Trash) but keep it on the server.
 export async function softDeleteNote(note) {
   note.deleted = true;
   note.deletedAt = new Date().toISOString();
@@ -228,23 +230,28 @@ export async function restoreNote(note) {
   return saveNote(note);
 }
 
-// Permanently remove a note (and its attachments) from Drive and the cache.
+// Permanently remove a note and its attachments, from the server and the cache.
 export async function purgeNote(note) {
-  await idbDelete('notes', note.id);
-  for (const att of note.attachments || []) {
-    if (att.id) drive.trashFile(att.id).catch(() => {});
-  }
-  if (!note.fileId) return;
-  try {
-    if (relayReady()) await relayDelete(note.fileId);
-    else await drive.trashFile(note.fileId);
-  } catch (err) {
-    if (isOffline(err)) {
-      await idbPut('queue', { kind: 'delete', fileId: note.fileId });
-    } else {
-      throw err;
+  return withLock(note.id, async () => {
+    const row = await idbGet('notes', note.id);
+    await idbDelete('notes', note.id);
+    if (!note.version && !row?.note.version) {
+      // Never reached the server, but its attachments may have.
+      for (const att of note.attachments || []) {
+        if (att.id) api.deleteAttachment(att.id).catch(() => {});
+      }
+      return;
     }
-  }
+    try {
+      await api.deleteNote(note.id); // the server removes the attachments too
+    } catch (err) {
+      if (isOffline(err) || err instanceof api.AuthError) {
+        await idbPut('queue', { kind: 'delete', id: note.id });
+      } else {
+        throw err;
+      }
+    }
+  });
 }
 
 // Permanently remove every soft-deleted note.
@@ -255,47 +262,46 @@ export async function emptyTrash() {
   }
 }
 
-// Pull the latest from Drive, fetching content only for changed files.
-export async function refreshFromDrive() {
-  await syncPending(); // push any locally-saved-but-not-yet-on-Drive notes
+// Send what's waiting, then pull everything changed since the last pull.
+export async function refreshFromServer() {
+  await syncPending();
   await flushQueue();
 
-  const files = await drive.listFiles();
-  const cached = await idbAll('notes');
-  const byFileId = new Map(
-    cached.filter((r) => r.note.fileId).map((r) => [r.note.fileId, r])
-  );
-  const seenFileIds = new Set();
+  let after = await getMeta('rev', 0);
+  let res = await api.pullNotes(after);
+  if (res.rev < after) {
+    // The server's counter went backwards (restored from a backup): start over.
+    after = 0;
+    res = await api.pullNotes(0);
+  }
 
-  for (const f of files) {
-    seenFileIds.add(f.id);
-    const existing = byFileId.get(f.id);
-    if (existing && existing.dirty) continue; // local has unsynced edits; don't clobber
-    if (existing && existing.modifiedTime === f.modifiedTime) {
-      continue; // unchanged
-    }
-    try {
-      const text = await drive.getContent(f.id);
-      const note = noteFromMarkdown(text, f.id, f.name);
-      await idbPut('notes', { id: note.id, note, modifiedTime: f.modifiedTime });
-    } catch (err) {
-      // Don't let one unreadable file abort the whole sync.
-      console.warn('Xava Notes: could not load file', f.name, err);
+  for (const n of res.notes) {
+    await withLock(n.id, async () => {
+      const local = await idbGet('notes', n.id);
+      // Local edits not yet on the server are never overwritten here. Their
+      // next push meets a 409 carrying this version, and the conflict is
+      // settled there.
+      if (local && local.dirty) return;
+      if (local && !n.purged && local.note.version === n.version) return;
+      await keepServerCopy(n, local?.mine);
+    });
+  }
+
+  if (after === 0) {
+    // A full pull is the complete list: drop confirmed notes it doesn't have
+    // (emptied from Trash while this device's markers were lost). Unconfirmed
+    // local notes always stay.
+    const seen = new Set(res.notes.map((n) => n.id));
+    for (const r of await idbAll('notes')) {
+      if (seen.has(r.id)) continue;
+      await withLock(r.id, async () => {
+        const cur = await idbGet('notes', r.id);
+        if (cur && !cur.dirty && cur.note.version) await idbDelete('notes', r.id);
+      });
     }
   }
 
-  // Remove cache entries whose Drive file disappeared (deleted elsewhere), but
-  // keep not-yet-synced local notes (no fileId). Guard: only prune when the
-  // listing actually returned something, so a transient empty/partial response
-  // can never wipe a populated cache.
-  if (files.length > 0) {
-    for (const r of cached) {
-      if (r.note.fileId && !seenFileIds.has(r.note.fileId)) {
-        await idbDelete('notes', r.note.id);
-      }
-    }
-  }
-
+  await setMeta('rev', res.rev);
   return cachedNotes();
 }
 
@@ -305,12 +311,12 @@ async function flushQueue() {
   const queue = await idbAll('queue');
   for (const item of queue) {
     try {
-      if (item.kind === 'delete') {
-        await drive.trashFile(item.fileId);
+      if (item.kind === 'delete' && item.id) {
+        await api.deleteNote(item.id);
       }
       await idbDelete('queue', item.qid);
     } catch (err) {
-      if (isOffline(err)) return; // still offline; stop and retry later
+      if (isOffline(err) || err instanceof api.AuthError) return; // retry later
       // Drop poison items so the queue can make progress.
       await idbDelete('queue', item.qid);
     }
@@ -318,5 +324,5 @@ async function flushQueue() {
 }
 
 function isOffline(err) {
-  return !navigator.onLine || /Failed to fetch|NetworkError/i.test(err?.message || '');
+  return !navigator.onLine || /Failed to fetch|NetworkError|Load failed/i.test(err?.message || '');
 }

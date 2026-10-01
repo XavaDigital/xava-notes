@@ -1,9 +1,8 @@
 // Main UI controller.
 
-import { getClientId, setClientId } from './config.js';
-import { signIn, signOut, isSignedIn, onAuthChange, getToken, relayReady, apiFetch } from './auth.js';
+import { isSignedIn, isConfirmed, currentEmail, onAuthChange, checkSession, goToSignIn } from './auth.js';
 import * as store from './store.js';
-import * as drive from './drive.js';
+import * as api from './api.js';
 import { emptyNote, notePreview } from './note.js';
 import { mdToHtml, htmlToMarkdown } from './markdown.js';
 import { parseFiles } from './import.js';
@@ -143,31 +142,27 @@ async function boot() {
   }
 
   // Reopen whatever was in the editor when the page went away, before the
-  // (possibly slow) Drive refresh — the text should be back immediately. Skipped
-  // only when Settings is about to open (no client id), which needs the sheet.
-  // On a share launch this still runs: handleSharedContent() saves the restored
-  // note before replacing it, so the share can't quietly discard a draft.
-  if (getClientId()) restoreDraft();
+  // (possibly slow) sync — the text should be back immediately. On a share
+  // launch this still runs: handleSharedContent() saves the restored note
+  // before replacing it, so the share can't quietly discard a draft.
+  restoreDraft();
 
   // If launched via the Android share sheet, open the pre-filled note straight
-  // away — don't make the user wait behind a full Drive sync. It manages its own
-  // token (needed only when there are file attachments to upload), so kick it
-  // off before the blocking refresh below and just await it at the end.
+  // away — don't make the user wait behind a full sync. Kick it off before the
+  // blocking refresh below and just await it at the end.
   const sharePending = handleSharedContent().catch((e) =>
     console.warn('Xava Notes: share handling failed', e));
 
-  // If we already have a client id, try a silent connect + refresh.
-  if (getClientId()) {
-    try {
-      await getToken({ interactive: false });
-    } catch {
-      /* will prompt via Settings */
-    }
-  }
+  // Check the session (offline leaves it unknown and the app carries on with
+  // its cache), then sync. A first run with nothing cached goes straight to the
+  // sign-in page; otherwise the banner offers it, so cached notes stay usable.
+  await checkSession();
   if (isSignedIn()) {
     await refresh();
-  } else if (!getClientId()) {
-    openSettings();
+  } else if (!state.notes.length && !state.current) {
+    await sharePending;
+    goToSignIn();
+    return;
   }
 
   await sharePending;
@@ -216,14 +211,13 @@ async function handleSharedContent() {
   if (state.notebook) n.notebook = state.notebook;
 
   if (files.length) {
-    if (!isSignedIn()) { try { await getToken({ interactive: true }); } catch {} }
     for (const file of files) {
       setStatus(`Attaching ${file.name}…`, true, true);
       try {
-        const m = await drive.uploadAttachment(file);
+        const m = await api.uploadAttachment(file);
         n.attachments.push({
           id: m.id, name: m.name || file.name,
-          mime: m.mimeType || file.type || '', size: Number(m.size) || file.size || 0,
+          mime: m.mime || file.type || '', size: Number(m.size) || file.size || 0,
         });
       } catch (e) {
         setStatus(`Couldn't attach ${file.name}: ${e.message}`, true);
@@ -243,10 +237,7 @@ async function handleSharedContent() {
   handlingShare = false;
 }
 
-onAuthChange(async (signed) => {
-  reflectAuth();
-  if (signed) await refresh();
-});
+onAuthChange(() => reflectAuth());
 
 // --- Sync ---------------------------------------------------------------
 
@@ -260,16 +251,15 @@ async function refresh() {
   // Sticky while it runs — the spinner, not a timed popup, signals "in progress".
   setStatus('Syncing…', true, true);
   try {
-    state.notes = await store.refreshFromDrive();
+    state.notes = await store.refreshFromServer();
     render();
     setStatus('Synced');
   } catch (err) {
     if (!navigator.onLine) {
       setStatus('Offline — showing cached notes', true);
-    } else if (/^AUTH:|\b401\b|invalid authentication/i.test(err.message)) {
+    } else if (err instanceof api.AuthError) {
       reflectAuth();
-      setStatus('Session expired — reconnect Google Drive', true);
-      openSettings();
+      setStatus('Signed out — sign in to sync', true);
     } else {
       setStatus(`Sync error: ${err.message}`, true);
     }
@@ -279,15 +269,15 @@ async function refresh() {
   }
 }
 
-// Lightweight retry of just the unsynced notes (no full Drive re-list). Used on
-// app focus / coming online so notes that failed to save reach Drive.
+// Lightweight retry of just the unsynced notes (no full pull). Used on app
+// focus / coming online so notes that failed to save reach the server.
 async function quickSync() {
   if (!isSignedIn() || !navigator.onLine) return;
   if (!state.notes.some((n) => n.unsynced)) return;
   const res = await store.syncPending();
   state.notes = await store.cachedNotes();
   render();
-  if (res.synced) setStatus(`Synced ${res.synced} item${res.synced === 1 ? '' : 's'} to Drive`);
+  if (res.synced) setStatus(`Synced ${res.synced} item${res.synced === 1 ? '' : 's'}`);
 }
 
 // --- Rendering ----------------------------------------------------------
@@ -473,7 +463,7 @@ function render() {
     const head = document.createElement('div');
     head.className = 'trash-head';
     head.innerHTML =
-      '<span class="muted small">Items stay on Drive until you empty the trash.</span>' +
+      '<span class="muted small">Items stay here until you empty the trash.</span>' +
       '<button id="emptyTrashBtn" class="danger-btn">Empty Trash</button>';
     list.appendChild(head);
     head.querySelector('#emptyTrashBtn').addEventListener('click', emptyTrashFlow);
@@ -562,7 +552,7 @@ function renderCard(note) {
           <div class="card-title">${escapeHtml(note.title || notePreview(note) || 'Untitled')}</div>
           ${note.title && note.body ? `<div class="card-preview">${escapeHtml(notePreview(note))}</div>` : ''}
           <div class="card-meta">
-            ${note.unsynced ? '<span class="badge unsynced" title="Saved on this device — not yet on Drive">● Unsynced</span>' : ''}
+            ${note.unsynced ? '<span class="badge unsynced" title="Saved on this device — not yet synced">● Unsynced</span>' : ''}
             ${note.notebook ? `<button class="nb-chip" data-nb="${escapeAttr(note.notebook)}">&#128214; ${escapeHtml(note.notebook)}</button>` : ''}
             ${note.due ? `<span class="badge ${isOverdue(note) ? 'overdue' : ''}">${formatDue(note.due)}</span>` : ''}
             ${subTotal ? `<button class="badge subtasks-toggle">${isExpanded(note.id) ? '&#9662;' : '&#9656;'} ${subDone}/${subTotal}</button>` : ''}
@@ -640,13 +630,13 @@ function renderCard(note) {
       state.notes = await store.cachedNotes();
       render();
     });
-    // Delete-forever action (swipe right) purges from Drive after confirmation.
+    // Delete-forever action (swipe right) purges from the server after confirmation.
     card.querySelector('.card-purge').addEventListener('click', async (e) => {
       e.stopPropagation();
       closeSwipes(null);
       const choice = await showDialog({
         title: note.title || notePreview(note) || 'Item',
-        message: 'Permanently delete this item from Drive? This cannot be undone.',
+        message: 'Permanently delete this item? This cannot be undone.',
         actions: [
           { label: 'Delete forever', value: 'yes', kind: 'danger' },
           { label: 'Cancel', value: 'no' },
@@ -867,7 +857,7 @@ async function trashItemFlow(note) {
 async function emptyTrashFlow() {
   const choice = await showDialog({
     title: 'Empty Trash?',
-    message: 'Permanently delete all items in the Trash from Drive. This cannot be undone.',
+    message: 'Permanently delete all items in the Trash. This cannot be undone.',
     actions: [
       { label: 'Empty Trash', value: 'yes', kind: 'danger' },
       { label: 'Cancel', value: 'no' },
@@ -958,7 +948,7 @@ async function bulkDelete() {
   if (!state.selected.size) return;
   const choice = await showDialog({
     title: `Move ${state.selected.size} item(s) to Trash?`,
-    message: 'They stay on Drive until you empty the Trash.',
+    message: 'They stay in the Trash until you empty it.',
     actions: [
       { label: 'Move to Trash', value: 'yes', kind: 'danger' },
       { label: 'Cancel', value: 'no' },
@@ -1435,7 +1425,7 @@ function openEditor(note, { edit = false, draft = null } = {}) {
   baselineEditorSnapshot(note, draft);
   // New notes open editable; existing notes open read-only to avoid accidental
   // edits, with an Edit button to switch.
-  setEditing(edit || !note.fileId);
+  setEditing(edit || !note.version);
   show('#editor');
   openOverlay(handleEditorClose);
   if (state.editing && !note.title) $('#titleInput').focus();
@@ -1647,7 +1637,7 @@ function addSubtasksFromLines(note, st, rawLines, e) {
 const blobUrlCache = new Map();
 async function attachmentUrl(att) {
   if (blobUrlCache.has(att.id)) return blobUrlCache.get(att.id);
-  const blob = await drive.getBlob(att.id);
+  const blob = await api.getAttachmentBlob(att.id);
   const url = URL.createObjectURL(blob);
   blobUrlCache.set(att.id, url);
   return url;
@@ -1698,7 +1688,7 @@ function renderAttachments(note) {
 
     item.querySelector('.remove').addEventListener('click', async () => {
       if (!confirm('Remove this attachment?')) return;
-      try { await drive.trashFile(att.id); } catch {}
+      try { await api.deleteAttachment(att.id); } catch {}
       blobUrlCache.delete(att.id);
       note.attachments.splice(i, 1);
       renderAttachments(note);
@@ -1711,19 +1701,15 @@ function renderAttachments(note) {
 
 async function handleAttachFiles(files) {
   const note = state.current;
-  if (!isSignedIn()) {
-    try { await getToken({ interactive: true }); }
-    catch (e) { setStatus(`Connect Google Drive first: ${e.message}`, true); return; }
-  }
   note.attachments = note.attachments || [];
   for (const file of files) {
     setStatus(`Uploading ${file.name}…`, true);
     try {
-      const meta = await drive.uploadAttachment(file);
+      const meta = await api.uploadAttachment(file);
       note.attachments.push({
         id: meta.id,
         name: meta.name || file.name,
-        mime: meta.mimeType || file.type || '',
+        mime: meta.mime || file.type || '',
         size: Number(meta.size) || file.size || 0,
       });
       renderAttachments(note);
@@ -1794,7 +1780,7 @@ async function createTasksFromLines(lines) {
   state.notes = await store.cachedNotes();
   render();
   setStatus(clean.length > 1 ? `Added ${saved} tasks` : '', clean.length > 1);
-  // Recover any that couldn't reach Drive (e.g. a transient rate-limit).
+  // Recover any that couldn't reach the server (e.g. a dropped connection).
   setTimeout(quickSync, 1500);
 }
 
@@ -1951,7 +1937,7 @@ function editorIsEmpty(n) {
 //      into localStorage. Local and synchronous, so a refresh, a crash or a
 //      backgrounded tab can't lose them; reopened automatically on next load.
 //   2. Real save — 10s after you stop typing, the note is saved for real
-//      (cache + Drive) through the same path as the Save button.
+//      (cache + server) through the same path as the Save button.
 //
 // Both only run while the editor is in edit mode. Closing the editor without
 // pressing Save keeps the edits on an existing note (they're already written),
@@ -1999,7 +1985,7 @@ function resetEditorSession(note, draft = null) {
   // Editing off until openEditor's setEditing() call decides: it keeps the
   // field renders that follow from registering as edits and arming the timers.
   state.editing = false;
-  editorWasNew = draft ? !!draft.wasNew : !note.fileId;
+  editorWasNew = draft ? !!draft.wasNew : !note.version;
   editorDirty = !!draft;
   autosavePaused = false;
   autosaveInFlight = false;
@@ -2146,12 +2132,12 @@ function handleEditorClose() {
 async function finishCancelledEdit({ note, wasNew, changed }) {
   // A new note you walked away from. It goes to Trash rather than the list:
   // recoverable if leaving was a mistake, out of the way if it wasn't. (Trash
-  // rather than nothing, because autosave may already have written it to Drive.)
+  // rather than nothing, because autosave may already have saved it.)
   if (wasNew) {
     if (editorIsEmpty(note)) {
       // Nothing left in it. If an autosave already wrote it, remove it outright
       // — an empty note has nothing worth recovering from Trash.
-      const persisted = note.fileId || state.notes.some((n) => n.id === note.id);
+      const persisted = note.version || state.notes.some((n) => n.id === note.id);
       if (!persisted) return;
       try {
         await store.purgeNote(note);
@@ -2179,9 +2165,9 @@ async function finishCancelledEdit({ note, wasNew, changed }) {
   try {
     const res = await store.saveNote(note, { onConflict: conflictPrompt });
     if (res.status === 'cancelled') {
-      setStatus('Your edits were kept on this device but not written to Drive', true);
+      setStatus('Your edits were not saved over the other version', true);
     } else {
-      setStatus(res.status === 'pending' ? 'Saved on this device — will sync to Drive' : 'Saved');
+      setStatus(res.status === 'pending' ? 'Saved on this device — will sync' : 'Saved');
     }
     state.notes = await store.cachedNotes();
     render();
@@ -2195,7 +2181,7 @@ async function saveEditor() {
   collectEditor();
   const n = state.current;
   // "Was this a brand-new item?" must come from the editor session, not from
-  // n.fileId — an autosave may already have created the file while you typed,
+  // n.version — an autosave may already have created the note while you typed,
   // which would otherwise suppress the jump-to-notebook below.
   const wasNew = editorWasNew;
   if (editorIsEmpty(n)) {
@@ -2225,9 +2211,9 @@ async function saveEditor() {
     if (wasNew && n.notebook) {
       state.inbox = false; state.notebook = n.notebook;
       state.trash = false; state.completed = false;
-      setStatus(pending ? `Saved to ${n.notebook} — will sync to Drive` : `Added to ${n.notebook}`, pending);
+      setStatus(pending ? `Saved to ${n.notebook} — will sync` : `Added to ${n.notebook}`, pending);
     } else {
-      setStatus(pending ? 'Saved on this device — will sync to Drive' : '', pending);
+      setStatus(pending ? 'Saved on this device — will sync' : '', pending);
     }
     render();
     closeEditorWith('save');
@@ -2241,7 +2227,7 @@ async function saveEditor() {
 
 // Email the currently-open (already-saved) note to the user on demand. If the
 // editor is in edit mode, capture any in-progress changes first so the email
-// reflects what's on screen (this does not save them to Drive).
+// reflects what's on screen (this does not save them to the server).
 async function emailCurrentNote() {
   const n = state.current;
   if (!n) return;
@@ -2259,35 +2245,24 @@ async function emailCurrentNote() {
   }
 }
 
-// Email the note/task to the user, via the Worker (which holds the Mailgun
+// Email the note/task to the user, via the server (which holds the Mailgun
 // key). Sends the current content as-is — no save required. Shows a sending
 // state and a clear success confirmation, since the request is near-instant.
 async function emailNoteCopy(note) {
-  if (!relayReady()) {
-    setStatus('Connect the backend to email this to you', true);
+  if (!isSignedIn()) {
+    setStatus('Sign in to email this to you', true);
     return;
   }
   setStatus('Emailing…', true, true); // sticky + spinner until we hear back
   try {
-    const res = await apiFetch('/notify', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        title: note.title,
-        type: note.type,
-        body: note.body,
-        due: note.due,
-        notebook: note.notebook,
-      }),
-    });
-    if (!res.ok) throw new Error(`${res.status}: ${(await res.text()).slice(0, 160)}`);
+    await api.notify(note);
     flashToast('✓ Emailed to you', 'success');
   } catch (err) {
     setStatus(`Email failed: ${err.message}`, true);
   }
 }
 
-// Asked when the file changed on Drive since we opened it.
+// Asked when another device saved the note since we opened it.
 function conflictPrompt() {
   return showDialog({
     title: 'This item changed elsewhere',
@@ -2303,8 +2278,8 @@ function conflictPrompt() {
 async function deleteEditor() {
   const n = state.current;
   stopAutosaveTimers();
-  if (!n.fileId) {
-    // Never reached Drive — discard it. An autosave may still have cached it
+  if (!n.version) {
+    // Never reached the server — discard it. An autosave may still have cached it
     // locally, so purge rather than leaving an orphan row in the list.
     try { await store.purgeNote(n); } catch {}
     state.notes = await store.cachedNotes();
@@ -2339,11 +2314,6 @@ async function handleImportFiles(files) {
   if (overlay) closeOverlayByUser();
   goToAllNotes();
 
-  if (!isSignedIn()) {
-    try { await getToken({ interactive: true }); }
-    catch (e) { setStatus(`Connect Google Drive first: ${e.message}`, true); return; }
-  }
-
   setStatus('Reading files…', true, true);
   const { notes, errors } = await parseFiles(files);
 
@@ -2364,16 +2334,16 @@ async function handleImportFiles(files) {
     seen.add(key);
     setStatus(`Importing ${saved + 1} of ${notes.length}…`, true, true);
     try {
-      // Upload any embedded attachments (e.g. from Evernote) to Drive first.
+      // Upload any embedded attachments (e.g. from Evernote) first.
       if (note.pendingAttachments?.length) {
         for (const att of note.pendingAttachments) {
           try {
             const file = new File([att.blob], att.name, { type: att.mime });
-            const meta = await drive.uploadAttachment(file);
+            const meta = await api.uploadAttachment(file);
             note.attachments.push({
               id: meta.id,
               name: meta.name || att.name,
-              mime: meta.mimeType || att.mime,
+              mime: meta.mime || att.mime,
               size: Number(meta.size) || att.blob.size || 0,
             });
           } catch (e) {
@@ -2408,7 +2378,7 @@ function importKey(note) {
 // --- Settings -----------------------------------------------------------
 
 function openSettings() {
-  $('#clientIdInput').value = getClientId();
+  checkSession(); // refreshes the account line when it answers
   reflectAuth();
   show('#settings');
   openOverlay(() => hide('#settings'));
@@ -2417,7 +2387,11 @@ function openSettings() {
 function reflectAuth() {
   const signed = isSignedIn();
   const status = $('#accountStatus');
-  if (status) status.textContent = signed ? 'Connected to Google Drive.' : 'Not connected.';
+  if (status) {
+    status.textContent = !signed ? 'Signed out.'
+      : isConfirmed() ? `Signed in as ${currentEmail()}.`
+      : 'Signed in (not checked yet — offline?).';
+  }
   const inBtn = $('#signInBtn'); if (inBtn) inBtn.hidden = signed;
   const outBtn = $('#signOutBtn'); if (outBtn) outBtn.hidden = !signed;
   reflectConnection();
@@ -2425,7 +2399,7 @@ function reflectAuth() {
 
 // Persistent banner under the header so a connection problem is visible in the
 // app (previously this only showed up in the console). Offline is informational;
-// "not connected" is tappable to reconnect.
+// "signed out" is tappable to sign in.
 function reflectConnection() {
   const banner = $('#connBanner');
   if (!banner) return;
@@ -2433,7 +2407,7 @@ function reflectConnection() {
   if (!navigator.onLine) {
     msg = 'Offline — changes are saved on this device and will sync when you reconnect.';
   } else if (!isSignedIn()) {
-    msg = '⚠ Not connected to Google Drive — tap to reconnect.';
+    msg = '⚠ Signed out — tap to sign in. Changes stay on this device until then.';
     tappable = true;
   }
   banner.textContent = msg;
@@ -2582,15 +2556,13 @@ function wireEvents() {
 
   // Settings
   $('#settingsBack').addEventListener('click', () => closeOverlayByUser());
-  $('#saveClientId').addEventListener('click', async () => {
-    setClientId($('#clientIdInput').value);
-    setStatus('Client ID saved.');
-    try { await signIn(); } catch (err) { setStatus(err.message, true); }
+  $('#signInBtn').addEventListener('click', () => goToSignIn());
+  $('#signOutBtn').addEventListener('click', async () => {
+    const pending = await store.countPending();
+    if (pending && !confirm(`${pending} item${pending === 1 ? ' has' : 's have'} not synced yet. They stay on this device and sync after you sign in again. Sign out?`)) return;
+    await api.signOut();
+    goToSignIn();
   });
-  $('#signInBtn').addEventListener('click', async () => {
-    try { await signIn(); } catch (err) { setStatus(err.message, true); }
-  });
-  $('#signOutBtn').addEventListener('click', () => { signOut(); reflectAuth(); });
 
   // Import
   $('#importBtn').addEventListener('click', () => $('#importInput').click());
@@ -2620,10 +2592,10 @@ function wireEvents() {
   window.addEventListener('online', () => { reflectConnection(); refresh(); });
   window.addEventListener('offline', reflectConnection);
 
-  // Tap the connection banner to reconnect (when signed out / token expired).
-  $('#connBanner').addEventListener('click', async () => {
+  // Tap the connection banner to sign in (when the session has ended).
+  $('#connBanner').addEventListener('click', () => {
     if (isSignedIn() || !navigator.onLine) return;
-    try { await signIn(); } catch (err) { setStatus(err.message, true); }
+    goToSignIn();
   });
 
   // Retry unsynced notes when the app regains focus, and periodically. Going

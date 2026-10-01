@@ -1,7 +1,7 @@
 {
   "name": "Xava Notes",
   "short_name": "Xava",
-  "description": "Quick voice-friendly notes & tasks, synced to your Google Drive.",
+  "description": "Quick voice-friendly notes & tasks that work offline.",
   "start_url": ".",
   "scope": ".",
   "display": "standalone",

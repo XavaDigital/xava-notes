@@ -1,7 +1,7 @@
 // Service worker: cache the app shell for offline use and fast loads.
 // Note data is cached separately in IndexedDB by the app.
 
-const CACHE = 'xava-notes-v64';
+const CACHE = 'xava-notes-v65';
 const SHELL = [
   './',
   './index.html',
@@ -10,7 +10,7 @@ const SHELL = [
   './js/app.js',
   './js/config.js',
   './js/auth.js',
-  './js/drive.js',
+  './js/api.js',
   './js/store.js',
   './js/note.js',
   './js/frontmatter.js',
@@ -77,8 +77,12 @@ self.addEventListener('fetch', (event) => {
   }
   if (request.method !== 'GET') return;
 
-  // Never touch Google API / auth traffic.
+  // Never touch other origins.
   if (url.origin !== self.location.origin) return;
+
+  // Never cache the API or the sign-in pages: notes live in IndexedDB, and a
+  // cached /login or API answer would be stale the moment it was stored.
+  if (/^\/(api|login|logout)(\/|$)/.test(url.pathname)) return;
 
   // Network-first for everything same-origin: always get the latest code when
   // online (prevents stale-asset mismatches), fall back to cache when offline.

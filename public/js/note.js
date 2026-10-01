@@ -14,7 +14,7 @@ export function emptyNote(type = 'note') {
   const now = new Date().toISOString();
   return {
     id: newId(),
-    fileId: null, // Drive file id, set once saved
+    version: 0, // the server's version of this copy; 0 until the server confirms a save
     title: '',
     type, // 'note' | 'task'
     body: '',
@@ -24,8 +24,8 @@ export function emptyNote(type = 'note') {
     due: '', // YYYY-MM-DD
     tags: [],
     subtasks: [], // [{text, done}]
-    attachments: [], // [{id, name, mime, size}] — id is the Drive file id
-    deleted: false, // soft-deleted (kept on Drive until trash is emptied)
+    attachments: [], // [{id, name, mime, size}] — id is the server's attachment id
+    deleted: false, // soft-deleted (kept on the server until trash is emptied)
     deletedAt: '',
     order: 0, // manual sort position (0 = unset; falls back to recency)
     created: now,
@@ -63,7 +63,7 @@ export function noteToMarkdown(note) {
 }
 
 // Parse Markdown file contents into a note object.
-export function noteFromMarkdown(text, fileId, fileName) {
+export function noteFromMarkdown(text, fileName) {
   const { meta, body } = parseFrontmatter(text);
 
   // Strip a leading "# Title" heading from the body if present (we re-add it
@@ -78,7 +78,7 @@ export function noteFromMarkdown(text, fileId, fileName) {
 
   return {
     id: meta.id || newId(),
-    fileId: fileId || null,
+    version: 0,
     // Back-compat: if neither the frontmatter nor a body heading carries a
     // title, fall back to the Drive filename (older files, or files created or
     // renamed outside the app, may have no title in their contents).

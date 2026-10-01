@@ -10,6 +10,9 @@ A notes and tasks PWA for one person, with a Laravel API that keeps the notes in
 ## Layout
 
 - `public/` — the PWA, served as static files: `index.html`, `js/`, `css/`, `icons/`, `sw.js`, `manifest.webmanifest`. No build step.
+  - `js/store.js` — the IndexedDB cache and sync: saves, retries, conflicts, pulls.
+  - `js/api.js` — every call to the server. `js/auth.js` — whether the session is good; signing in is the server's `/login` page.
+  - `sw.js` — bump `CACHE` whenever shipped files change, and keep `SHELL` in step with the files in `js/`, or the new service worker fails to install.
 - `app/Http/Controllers/NotesController.php` — the pull (`GET /api/notes?after=<rev>`), the save with its conflict check (`PUT /api/notes/{id}`) and the purge.
 - `app/Models/Note.php` — translates between the app's note shape (`public/js/note.js`) and the columns.
 - `app/Notes/Revisions.php` — the global change counter behind `rev`.
