@@ -16,6 +16,8 @@ A notes and tasks PWA for one person, with a Laravel API that keeps the notes in
 - `app/Http/Controllers/NotesController.php` — the pull (`GET /api/notes?after=<rev>`), the save with its conflict check (`PUT /api/notes/{id}`) and the purge.
 - `app/Models/Note.php` — translates between the app's note shape (`public/js/note.js`) and the columns.
 - `app/Notes/Revisions.php` — the global change counter behind `rev`.
+- `app/Notes/MarkdownNote.php` — reads a note's Markdown file exactly as `public/js/note.js` does. `tests/Fixtures/markdown/cases.json` is generated from the JavaScript itself (`node tests/Fixtures/markdown/generate.mjs`); regenerate it whenever `note.js` or `frontmatter.js` changes.
+- `app/Notes/Drive.php`, `app/Console/Commands/ImportDriveCommand.php` — `notes:import-drive` (Phase 3).
 - `app/Http/Controllers/AttachmentsController.php`, `NotifyController.php`, `SignInController.php`, `SessionController.php`.
 - `backend/` — the old Cloudflare Worker. Kept until Phase 5, then deleted.
 

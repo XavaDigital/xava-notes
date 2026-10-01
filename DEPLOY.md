@@ -1,6 +1,6 @@
 # Deploying Xava Notes to Cloudways
 
-Target: the existing Cloudways server that runs BM Needs Me (basic PHP stack, PHP 8.3). One new application, its own MySQL database, the app served over https on its own subdomain. [BM Needs Me's DEPLOY.md](../BM-Needs-Me/DEPLOY.md) is the reference this follows.
+Target: the existing Cloudways server that runs BM Needs Me (basic PHP stack, PHP 8.3). One new application, its own MySQL database, the app served over https at **https://notes.xava.co.nz**. [BM Needs Me's DEPLOY.md](../BM-Needs-Me/DEPLOY.md) is the reference this follows.
 
 **Use `php8.3` in every command.** The web server runs the app on 8.3, but the plain `php` command over SSH is 8.2 on this server.
 
@@ -10,7 +10,7 @@ Target: the existing Cloudways server that runs BM Needs Me (basic PHP stack, PH
 
 1. Server → Add Application → PHP (the plain PHP stack, not Laravel or WordPress). Name it `xava-notes`.
 2. Application Settings → General: set the **Webroot** to `public_html/public`.
-3. Domain Management: add the subdomain as the primary domain, point its DNS A record at the server's IP, then SSL Certificate → Let's Encrypt. The service worker and the secure session cookie both need https.
+3. Domain Management: add `notes.xava.co.nz` as the primary domain. In Discount Domains (the DNS host for `xava.co.nz`), add an A record: host `notes`, value `139.180.160.90` (the server's IP). Once it resolves, SSL Certificate → Let's Encrypt. The service worker and the secure session cookie both need https.
 4. Note the database name, user and password from the application's Access Details.
 
 ## 2. Deploy the code
@@ -41,7 +41,7 @@ If a command fails with "Permission denied" on `storage/`, use Application Setti
 | Key | What |
 |---|---|
 | `APP_ENV`, `APP_DEBUG` | `production` and `false`. The template ships with `local` and `true`, which shows stack traces and settings on any error page. |
-| `APP_URL` | The subdomain's https URL. |
+| `APP_URL` | `https://notes.xava.co.nz` |
 | `DB_*` | `DB_CONNECTION=mysql` and the details from step 1. |
 | `SESSION_SECURE_COOKIE` | `true`. |
 | `MAILGUN_DOMAIN`, `MAILGUN_SECRET` | The same values the Worker uses (they are in `.env.worker` on David's machine). |
@@ -67,8 +67,8 @@ The notes live in this application's MySQL database and the attachments in `stor
 
 ## 7. Check it
 
-1. `curl -I https://<subdomain>/up` answers 200.
-2. `https://<subdomain>/login` shows the sign-in page; the `notes:owner` details sign in and land on the app.
-3. `https://<subdomain>/api/notes` answers 401 in a private window.
+1. `curl -I https://notes.xava.co.nz/up` answers 200.
+2. `https://notes.xava.co.nz/login` shows the sign-in page; the `notes:owner` details sign in and land on the app.
+3. `https://notes.xava.co.nz/api/notes` answers 401 in a private window.
 
 Until Phase 2 is deployed, the app on the subdomain is still the Drive version of the client. Do not use it for real notes before then.

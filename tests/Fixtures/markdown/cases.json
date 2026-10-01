@@ -1,0 +1,383 @@
+[
+  {
+    "name": "full task",
+    "fileName": "note.md",
+    "markdown": "---\nid: \"mfx1a2b3-abc123\"\ntype: \"task\"\ncreated: \"2026-09-01T09:00:00.000Z\"\nupdated: \"2026-09-02T10:30:00.000Z\"\ntitle: \"Ring the bank\"\nnotebook: \"Home\"\ndue: \"2026-09-05\"\ndone: true\ncompletedAt: \"2026-09-03T08:00:00.000Z\"\nsubtasks:\n  - text: \"Find the number\"\n    done: true\n  - text: \"Ask about: rates\"\n    done: false\ntags: [money, calls]\norder: 1727740800000.5\n---\n# Ring the bank\n\nAbout the **loan**.\n\n- one\n- two",
+    "expected": {
+      "id": "mfx1a2b3-abc123",
+      "title": "Ring the bank",
+      "type": "task",
+      "body": "About the **loan**.\n\n- one\n- two",
+      "notebook": "Home",
+      "done": true,
+      "completedAt": "2026-09-03T08:00:00.000Z",
+      "due": "2026-09-05",
+      "tags": [
+        "money",
+        "calls"
+      ],
+      "subtasks": [
+        {
+          "text": "Find the number",
+          "done": true
+        },
+        {
+          "text": "Ask about: rates",
+          "done": false
+        }
+      ],
+      "attachments": [],
+      "deleted": false,
+      "deletedAt": "",
+      "order": 1727740800000.5,
+      "created": "2026-09-01T09:00:00.000Z",
+      "updated": "2026-09-02T10:30:00.000Z"
+    },
+    "volatile": []
+  },
+  {
+    "name": "quotes, colons, unicode",
+    "fileName": "note.md",
+    "markdown": "---\nid: \"mfx1a2b3-abc123\"\ntype: \"note\"\ncreated: \"2026-09-01T09:00:00.000Z\"\nupdated: \"2026-09-02T10:30:00.000Z\"\ntitle: \"She said \\\"hi\\\": café ☕\"\nnotebook: \"Notes: misc\"\ntags: [ünïcode]\n---\n# She said \"hi\": café ☕\n\nLine with \"quotes\" and a back\\slash.\n",
+    "expected": {
+      "id": "mfx1a2b3-abc123",
+      "title": "She said \"hi\": café ☕",
+      "type": "note",
+      "body": "Line with \"quotes\" and a back\\slash.\n",
+      "notebook": "Notes: misc",
+      "done": false,
+      "completedAt": "",
+      "due": "",
+      "tags": [
+        "ünïcode"
+      ],
+      "subtasks": [],
+      "attachments": [],
+      "deleted": false,
+      "deletedAt": "",
+      "order": 0,
+      "created": "2026-09-01T09:00:00.000Z",
+      "updated": "2026-09-02T10:30:00.000Z"
+    },
+    "volatile": []
+  },
+  {
+    "name": "in trash",
+    "fileName": "note.md",
+    "markdown": "---\nid: \"mfx1a2b3-abc123\"\ntype: \"note\"\ncreated: \"2026-09-01T09:00:00.000Z\"\nupdated: \"2026-09-02T10:30:00.000Z\"\ntitle: \"Old idea\"\ndeleted: true\ndeletedAt: \"2026-09-04T00:00:00.000Z\"\n---\n# Old idea\n\ngone",
+    "expected": {
+      "id": "mfx1a2b3-abc123",
+      "title": "Old idea",
+      "type": "note",
+      "body": "gone",
+      "notebook": "",
+      "done": false,
+      "completedAt": "",
+      "due": "",
+      "tags": [],
+      "subtasks": [],
+      "attachments": [],
+      "deleted": true,
+      "deletedAt": "2026-09-04T00:00:00.000Z",
+      "order": 0,
+      "created": "2026-09-01T09:00:00.000Z",
+      "updated": "2026-09-02T10:30:00.000Z"
+    },
+    "volatile": []
+  },
+  {
+    "name": "with attachments",
+    "fileName": "note.md",
+    "markdown": "---\nid: \"mfx1a2b3-abc123\"\ntype: \"note\"\ncreated: \"2026-09-01T09:00:00.000Z\"\nupdated: \"2026-09-02T10:30:00.000Z\"\ntitle: \"Receipt\"\nattachments:\n  - id: \"1AbCdEf\"\n    name: \"receipt.pdf\"\n    mime: \"application/pdf\"\n    size: 12345\n  - id: \"1XyZ\"\n    name: \"photo one.jpg\"\n    mime: \"image/jpeg\"\n    size: 99\n---\n# Receipt\n\n",
+    "expected": {
+      "id": "mfx1a2b3-abc123",
+      "title": "Receipt",
+      "type": "note",
+      "body": "",
+      "notebook": "",
+      "done": false,
+      "completedAt": "",
+      "due": "",
+      "tags": [],
+      "subtasks": [],
+      "attachments": [
+        {
+          "id": "1AbCdEf",
+          "name": "receipt.pdf",
+          "mime": "application/pdf",
+          "size": 12345
+        },
+        {
+          "id": "1XyZ",
+          "name": "photo one.jpg",
+          "mime": "image/jpeg",
+          "size": 99
+        }
+      ],
+      "deleted": false,
+      "deletedAt": "",
+      "order": 0,
+      "created": "2026-09-01T09:00:00.000Z",
+      "updated": "2026-09-02T10:30:00.000Z"
+    },
+    "volatile": []
+  },
+  {
+    "name": "note with a date",
+    "fileName": "note.md",
+    "markdown": "---\nid: \"mfx1a2b3-abc123\"\ntype: \"note\"\ncreated: \"2026-09-01T09:00:00.000Z\"\nupdated: \"2026-09-02T10:30:00.000Z\"\ntitle: \"Dentist\"\ndue: \"2026-10-10\"\n---\n# Dentist\n\n",
+    "expected": {
+      "id": "mfx1a2b3-abc123",
+      "title": "Dentist",
+      "type": "note",
+      "body": "",
+      "notebook": "",
+      "done": false,
+      "completedAt": "",
+      "due": "2026-10-10",
+      "tags": [],
+      "subtasks": [],
+      "attachments": [],
+      "deleted": false,
+      "deletedAt": "",
+      "order": 0,
+      "created": "2026-09-01T09:00:00.000Z",
+      "updated": "2026-09-02T10:30:00.000Z"
+    },
+    "volatile": []
+  },
+  {
+    "name": "empty title, body only",
+    "fileName": "note.md",
+    "markdown": "---\nid: \"mfx1a2b3-abc123\"\ntype: \"note\"\ncreated: \"2026-09-01T09:00:00.000Z\"\nupdated: \"2026-09-02T10:30:00.000Z\"\n---\nJust a body line\nand another",
+    "expected": {
+      "id": "mfx1a2b3-abc123",
+      "title": "note",
+      "type": "note",
+      "body": "Just a body line\nand another",
+      "notebook": "",
+      "done": false,
+      "completedAt": "",
+      "due": "",
+      "tags": [],
+      "subtasks": [],
+      "attachments": [],
+      "deleted": false,
+      "deletedAt": "",
+      "order": 0,
+      "created": "2026-09-01T09:00:00.000Z",
+      "updated": "2026-09-02T10:30:00.000Z"
+    },
+    "volatile": []
+  },
+  {
+    "name": "no frontmatter, heading title",
+    "fileName": "Groceries list.md",
+    "markdown": "# Groceries\n\nmilk\nbread\n",
+    "expected": {
+      "id": "mupmzcei-hrwzel",
+      "title": "Groceries",
+      "type": "note",
+      "body": "milk\nbread\n",
+      "notebook": "",
+      "done": false,
+      "completedAt": "",
+      "due": "",
+      "tags": [],
+      "subtasks": [],
+      "attachments": [],
+      "deleted": false,
+      "deletedAt": "",
+      "order": 0,
+      "created": "2026-10-01T14:35:35.178Z",
+      "updated": "2026-10-01T14:35:35.179Z"
+    },
+    "volatile": [
+      "id",
+      "created",
+      "updated"
+    ]
+  },
+  {
+    "name": "no frontmatter, title from filename",
+    "fileName": "Phone numbers.md",
+    "markdown": "Sam 021 555 1234\n",
+    "expected": {
+      "id": "mupmzcek-pj0h0m",
+      "title": "Phone numbers",
+      "type": "note",
+      "body": "Sam 021 555 1234\n",
+      "notebook": "",
+      "done": false,
+      "completedAt": "",
+      "due": "",
+      "tags": [],
+      "subtasks": [],
+      "attachments": [],
+      "deleted": false,
+      "deletedAt": "",
+      "order": 0,
+      "created": "2026-10-01T14:35:35.180Z",
+      "updated": "2026-10-01T14:35:35.180Z"
+    },
+    "volatile": [
+      "id",
+      "created",
+      "updated"
+    ]
+  },
+  {
+    "name": "numbers and bare values",
+    "fileName": "y.md",
+    "markdown": "---\nid: num-1\ntitle: 2024\ntags: [2024, 1.50, plain, \"quoted, still split\"]\norder: 7\ndone: false\ncreated: 2026-02-02T00:00:00.000Z\n---\n\n\nbody after blank lines\n",
+    "expected": {
+      "id": "num-1",
+      "title": 2024,
+      "type": "note",
+      "body": "body after blank lines\n",
+      "notebook": "",
+      "done": false,
+      "completedAt": "",
+      "due": "",
+      "tags": [
+        "2024",
+        "1.5",
+        "plain",
+        "\"quoted",
+        "still split\""
+      ],
+      "subtasks": [],
+      "attachments": [],
+      "deleted": false,
+      "deletedAt": "",
+      "order": 7,
+      "created": "2026-02-02T00:00:00.000Z",
+      "updated": "2026-02-02T00:00:00.000Z"
+    },
+    "volatile": []
+  },
+  {
+    "name": "unknown keys and junk lines",
+    "fileName": "z.md",
+    "markdown": "---\nid: \"junk-1\"\nmood: \"fine\"\nthis line has no colon\n  stray indent: 3\ntitle: \"Kept\"\n---\nbody\n",
+    "expected": {
+      "id": "junk-1",
+      "title": "Kept",
+      "type": "note",
+      "body": "body\n",
+      "notebook": "",
+      "done": false,
+      "completedAt": "",
+      "due": "",
+      "tags": [],
+      "subtasks": [],
+      "attachments": [],
+      "deleted": false,
+      "deletedAt": "",
+      "order": 0,
+      "created": "2026-10-01T14:35:35.180Z",
+      "updated": "2026-10-01T14:35:35.180Z"
+    },
+    "volatile": [
+      "created",
+      "updated"
+    ]
+  },
+  {
+    "name": "malformed subtasks",
+    "fileName": "s.md",
+    "markdown": "---\nid: \"sub-1\"\ntype: \"task\"\nsubtasks: [a, b]\nattachments:\n  - name: \"no id\"\n  - id: \"has-id\"\n    size: \"12\"\n---\n",
+    "expected": {
+      "id": "sub-1",
+      "title": "s",
+      "type": "task",
+      "body": "",
+      "notebook": "",
+      "done": false,
+      "completedAt": "",
+      "due": "",
+      "tags": [],
+      "subtasks": [
+        {
+          "text": "",
+          "done": false
+        },
+        {
+          "text": "",
+          "done": false
+        }
+      ],
+      "attachments": [
+        {
+          "id": "has-id",
+          "name": "",
+          "mime": "",
+          "size": 12
+        }
+      ],
+      "deleted": false,
+      "deletedAt": "",
+      "order": 0,
+      "created": "2026-10-01T14:35:35.180Z",
+      "updated": "2026-10-01T14:35:35.180Z"
+    },
+    "volatile": [
+      "created",
+      "updated"
+    ]
+  },
+  {
+    "name": "title in frontmatter and heading",
+    "fileName": "t.md",
+    "markdown": "---\nid: \"both-1\"\ntitle: \"From meta\"\n---\n# From heading\n\nbody\n",
+    "expected": {
+      "id": "both-1",
+      "title": "From meta",
+      "type": "note",
+      "body": "body\n",
+      "notebook": "",
+      "done": false,
+      "completedAt": "",
+      "due": "",
+      "tags": [],
+      "subtasks": [],
+      "attachments": [],
+      "deleted": false,
+      "deletedAt": "",
+      "order": 0,
+      "created": "2026-10-01T14:35:35.180Z",
+      "updated": "2026-10-01T14:35:35.180Z"
+    },
+    "volatile": [
+      "created",
+      "updated"
+    ]
+  },
+  {
+    "name": "escaped quote and backslash",
+    "fileName": "q.md",
+    "markdown": "---\nid: \"q-1\"\ntitle: \"a \\\"b\\\" c\\\\d\"\n---\n",
+    "expected": {
+      "id": "q-1",
+      "title": "a \"b\" c\\\\d",
+      "type": "note",
+      "body": "",
+      "notebook": "",
+      "done": false,
+      "completedAt": "",
+      "due": "",
+      "tags": [],
+      "subtasks": [],
+      "attachments": [],
+      "deleted": false,
+      "deletedAt": "",
+      "order": 0,
+      "created": "2026-10-01T14:35:35.180Z",
+      "updated": "2026-10-01T14:35:35.180Z"
+    },
+    "volatile": [
+      "created",
+      "updated"
+    ]
+  }
+]

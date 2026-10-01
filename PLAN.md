@@ -4,7 +4,7 @@ Move Xava Notes off Google Drive and the Cloudflare Worker, onto a small Laravel
 
 Written 2026-10-01.
 
-**Progress.** Phase 1 (the server app) is built on the `cloudways` branch and tested on SQLite, MySQL 8 and MariaDB 10.6. Phase 2 (the client) is built and tested in a desktop browser against a local server; not yet tried on the phone. Nothing is deployed. Phases 0 and 3 to 5 are not started.
+**Progress.** Phases 1 and 2 are built and live at https://notes.xava.co.nz (deployed 2026-10-02, empty database; the phone test passed). Phase 0 is done: subdomain set up with HTTPS, server backups on, attachments well within the server's disk. Phase 3: the import command is built and dry-run against the real Drive (152 files, 129 notes after 23 duplicate copies are dropped, 5 attachments); the real import has not run. Phases 4 and 5 are not started. Keep using the GitHub Pages app for real notes until Phase 3.
 
 ## Why
 
@@ -37,7 +37,7 @@ With our own database, notes are rows keyed by the id the app already generates,
 
 | Now | After |
 |---|---|
-| PWA on GitHub Pages (`xavadigital.github.io`) | PWA served by the Laravel app on its own subdomain |
+| PWA on GitHub Pages (`xavadigital.github.io`) | PWA served by the Laravel app at `notes.xava.co.nz` |
 | Notes as Markdown files in Drive, `drive.file` scope | Rows in MySQL |
 | Attachments in `XavaNotes/attachments` in Drive | Files on the server's disk, served only to a signed-in session |
 | Google sign-in (GIS token client) plus the Worker's refresh token | Laravel sign-in form with remember-me, same as BM Needs Me |
@@ -101,14 +101,14 @@ All behind the session, all JSON. Writes carry Laravel's `XSRF-TOKEN` cookie bac
 ## Build phases
 
 **Phase 0. Before any code (David).**
-1. Pick the subdomain (for example `notes.xavadigital.com`).
-2. Check that Cloudways backups are switched on for the server. The server becomes the only live copy of the notes, and it is shared with BM Needs Me, so if it goes down both go down.
-3. Look at how much is in `XavaNotes/attachments` in Drive, to confirm the server disk has room.
+1. Pick the subdomain. Done: `notes.xava.co.nz`, an A record at Discount Domains (the DNS host for `xava.co.nz`) pointing at the server, 139.180.160.90.
+2. Check that Cloudways backups are switched on for the server. Done: on. The server becomes the only live copy of the notes, and it is shared with BM Needs Me, so if it goes down both go down.
+3. Look at how much is in `XavaNotes/attachments` in Drive, to confirm the server disk has room. Done: tens of MB at most, against 187 GB free.
 4. Optional: check the Cloudflare and Mailgun billing pages, so the saving (if any) is known.
 
-**Phase 1. The server app. Built, not deployed.** Laravel app, migrations for `notes` and `attachments`, the sign-in form, the API, the `notify` email through Mailgun, and the PWA served from `public/`. PHPUnit tests for: create and update by client id, a repeated save not duplicating, the 409 on a stale `base_version`, the `after=<rev>` pull including soft-deleted and purged notes, and attachments only reachable when signed in. Deployed to the subdomain with an empty database ([DEPLOY.md](DEPLOY.md)).
+**Phase 1. The server app. Done, live.** Laravel app, migrations for `notes` and `attachments`, the sign-in form, the API, the `notify` email through Mailgun, and the PWA served from `public/`. PHPUnit tests for: create and update by client id, a repeated save not duplicating, the 409 on a stale `base_version`, the `after=<rev>` pull including soft-deleted and purged notes, and attachments only reachable when signed in. Deployed to the subdomain with an empty database ([DEPLOY.md](DEPLOY.md)).
 
-**Phase 2. The client talks to the server. Built; phone test outstanding.** The changes to `js/store.js`, `js/auth.js`, `js/config.js` and `sw.js` above, `js/drive.js` replaced by `js/api.js`. Tried on the new subdomain with test notes, including offline on the phone: capture with no signal, reconnect, confirm it lands; edit the same note on two devices and confirm the conflict prompt.
+**Phase 2. The client talks to the server. Done, phone test passed.** The changes to `js/store.js`, `js/auth.js`, `js/config.js` and `sw.js` above, `js/drive.js` replaced by `js/api.js`. Tried on the new subdomain with test notes, including offline on the phone: capture with no signal, reconnect, confirm it lands; edit the same note on two devices and confirm the conflict prompt.
 
 **Phase 3. Move the notes.**
 1. Freeze the old app: stop editing on the GitHub Pages version.
@@ -130,14 +130,11 @@ The Drive files are left where they are, untouched, as the fallback until Phase 
 - **One server for everything.** A server outage takes out BM Needs Me and Xava Notes together. Covered by Cloudways backups, the nightly Drive export, and the phone's offline copy, which still shows every note and accepts new ones during an outage.
 - **A bad migration.** Covered by the count check in Phase 3 and by leaving the Drive files untouched until Phase 5.
 - **Session expiry while offline edits are waiting.** The edits stay in IndexedDB marked dirty and are sent after sign-in; nothing is dropped. Remember-me keeps this rare.
-- **Google refresh token expiring.** Phases 3 and 4 need a refresh token on the server. If the Google consent screen is in Testing mode, refresh tokens expire after 7 days and the nightly backup would stop every week. `backend/README.md` says it was published to Production; `README.md` describes Testing. Check in Google Cloud Console before Phase 4.
+- **Google refresh token expiring.** Phases 3 and 4 need a refresh token on the server. If the Google consent screen is in Testing mode, refresh tokens expire after 7 days and the nightly backup would stop every week. `backend/README.md` says it was published to Production; `README.md` describes Testing. Checked 2026-10-02: in production, so the refresh token does not expire after 7 days.
 - **Disk space for attachments.** Checked in Phase 0. If it is tight, attachments can stay in Drive with only notes moving; that keeps one Google dependency, for attachments only.
 
 ## Open questions
 
-- The subdomain.
-- Whether Cloudways backups are on for that server, and how often they run.
-- How large the attachments folder is.
-- Whether the Google consent screen is in Production or Testing (see the refresh-token risk above).
-- Whether the Mailgun account is in the US or EU region (sets `MAILGUN_ENDPOINT`).
+- How often the Cloudways backups run.
+- Mailgun region: the server uses the US endpoint, as the Worker did. Confirmed once "Email me a copy" from the live app arrives.
 - Whether the old `XavaNotes` Drive folder is deleted or kept after Phase 5.
