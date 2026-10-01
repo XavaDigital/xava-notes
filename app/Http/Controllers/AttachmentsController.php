@@ -5,9 +5,10 @@ namespace App\Http\Controllers;
 use App\Models\Attachment;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Http\Response;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
-use Symfony\Component\HttpFoundation\StreamedResponse;
+use Symfony\Component\HttpFoundation\HeaderUtils;
 
 class AttachmentsController extends Controller
 {
@@ -40,22 +41,24 @@ class AttachmentsController extends Controller
         return response()->json($attachment->toClient(), 201);
     }
 
-    /** GET /api/attachments/{attachment}: the file. Sandboxed so an uploaded page cannot run script here. */
-    public function show(Attachment $attachment): StreamedResponse
+    /**
+     * GET /api/attachments/{attachment}: the file. Sandboxed so an uploaded page cannot run script here.
+     *
+     * Sent whole rather than streamed: the server's PHP has fpassthru() disabled, which
+     * Laravel's streamed file responses rely on. Attachments are capped at 50 MB.
+     */
+    public function show(Attachment $attachment): Response
     {
         $inline = Str::startsWith($attachment->mime, self::INLINE);
+        $fallbackName = preg_replace('/[^A-Za-z0-9._ -]/', '_', Str::ascii($attachment->name)) ?: 'file';
 
-        return Storage::disk('local')->response(
-            $attachment->path,
-            $attachment->name,
-            [
-                'Content-Type' => $attachment->mime,
-                'X-Content-Type-Options' => 'nosniff',
-                'Content-Security-Policy' => 'sandbox',
-                'Cache-Control' => 'private, max-age=31536000, immutable',
-            ],
-            $inline ? 'inline' : 'attachment',
-        );
+        return response(Storage::disk('local')->get($attachment->path), 200, [
+            'Content-Type' => $attachment->mime,
+            'Content-Disposition' => HeaderUtils::makeDisposition($inline ? 'inline' : 'attachment', $attachment->name, $fallbackName),
+            'X-Content-Type-Options' => 'nosniff',
+            'Content-Security-Policy' => 'sandbox',
+            'Cache-Control' => 'private, max-age=31536000, immutable',
+        ]);
     }
 
     /** DELETE /api/attachments/{id}: remove it. Repeating it is a no-op. */

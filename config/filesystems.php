@@ -36,6 +36,13 @@ return [
             'serve' => true,
             'throw' => false,
             'report' => false,
+            // Group-shared (www-data on Cloudways): the web app and artisan commands run over
+            // SSH are different users, and each must read what the other wrote. Laravel's
+            // default for private files is owner-only.
+            'permissions' => [
+                'file' => ['public' => 0664, 'private' => 0664],
+                'dir' => ['public' => 0775, 'private' => 0775],
+            ],
         ],
 
         'public' => [
