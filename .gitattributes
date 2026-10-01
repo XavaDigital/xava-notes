@@ -1,3 +1,6 @@
 # Shell scripts must keep LF endings. Git's Windows autocrlf would otherwise
 # check deploy.sh out with CRLF, which breaks the `#!` line at run time.
 *.sh text eol=lf
+
+# artisan is run directly on the server; keep it LF too.
+artisan text eol=lf

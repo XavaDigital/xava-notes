@@ -14,3 +14,12 @@ node_modules/
 .env
 .env.*
 !.env.example
+
+# Laravel
+/vendor
+/public/storage
+/storage/*.key
+/storage/pail
+/.phpunit.cache
+.phpunit.result.cache
+*.log
