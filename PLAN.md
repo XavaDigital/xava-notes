@@ -4,7 +4,7 @@ Move Xava Notes off Google Drive and the Cloudflare Worker, onto a small Laravel
 
 Written 2026-10-01.
 
-**Progress.** Phases 0 to 3 are done. The app is live at https://notes.xava.co.nz with the notes imported from Drive on 2026-10-02 (129 notes, 23 duplicate copies dropped, 5 attachments). The GitHub Pages workflow is removed and both branches hold the Laravel app; the last Pages deployment still serves the frozen old app until Pages is switched off in the repo settings (Phase 5). Still to do in Phase 3: install the app from the new address on the phone and Windows and remove the old one. Phases 4 and 5 are not started.
+**Progress.** Phases 0 to 3 are done. The app is live at https://notes.xava.co.nz with the notes imported from Drive on 2026-10-02 (129 notes, 23 duplicate copies dropped, 5 attachments). GitHub Pages is switched off (2026-10-03) and both branches hold the Laravel app; the old app's address now returns 404. The Drive files remain as the fallback until Phase 5. Still to do in Phase 3: install the app from the new address on the phone and Windows and remove the old one. Phases 4 and 5 are not started.
 
 ## Why
 
@@ -114,14 +114,14 @@ All behind the session, all JSON. Writes carry Laravel's `XSRF-TOKEN` cookie bac
 1. Freeze the old app: stop editing on the GitHub Pages version.
 2. Import with an artisan command, `notes:import-drive`. It reads the `XavaNotes` folder and its attachments through the same Google OAuth client (the `drive.file` scope lets that client see the files it created), using the refresh token the Worker already holds (or a fresh consent), parses each file with the same frontmatter rules as `js/note.js`, and inserts it with its original id. Attachments are downloaded to disk and their ids rewritten in the note.
 3. Check: the count of notes, tasks, notebooks and attachments matches Drive; open a sample of notes with attachments.
-4. Merge `cloudways` into `claude/note-todo-app-fnaar3` only now, and remove the GitHub Pages workflow in the same change, so the push does not republish the Laravel repo to Pages.
+4. Merge `cloudways` into `claude/note-todo-app-fnaar3` only now, with GitHub Pages switched off first. Done 2026-10-03. Removing the workflow file was not enough: Pages was also set to build straight from the branch ("legacy" mode), so the merge push republished the repo root over the old app before Pages was switched off.
 5. Install the PWA from the new subdomain on the phone and on Windows. Remove the old one. IndexedDB is per domain, so the new install starts clean and pulls everything from the server.
 
 The Drive files are left where they are, untouched, as the fallback until Phase 5.
 
 **Phase 4. Nightly backup to Drive.** A scheduled job writes every note as a Markdown file, in today's frontmatter format, into a separate Drive folder (`XavaNotes backup`), plus any attachments added since the last run. One-way only: nothing is ever read back from it automatically. If it fails, the app is unaffected and the failure is emailed. Because the format is unchanged, the Phase 3 import command can restore from it.
 
-**Phase 5. Retire the old pieces, after about two weeks of use without problems.** Delete the Cloudflare Worker and its D1 database, remove the GitHub Pages workflow and `deploy.sh` (or change `deploy.sh` to push the branch Cloudways pulls from), delete `backend/`, and update the README. Decide whether to keep or remove the original `XavaNotes` folder in Drive.
+**Phase 5. Retire the old pieces, after about two weeks of use without problems.** Delete the Cloudflare Worker and its D1 database, remove `deploy.sh` (or change it to push the branch Cloudways pulls from; GitHub Pages and its workflow are already gone, see Phase 3), delete `backend/`, and update the README. Decide whether to keep or remove the original `XavaNotes` folder in Drive.
 
 **Later. Reminders and push notifications.** Built in the Worker but never connected to the app. Port it to Laravel (the `minishlink/web-push` package, the same VAPID keys, the existing scheduler) and add the UI to set a reminder on a note. This is the "Reminders & push notifications" item on the README roadmap.
 
