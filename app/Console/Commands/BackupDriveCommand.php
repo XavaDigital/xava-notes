@@ -34,6 +34,8 @@ class BackupDriveCommand extends Command
         try {
             [$notes, $removed, $attachments] = $this->backup($drive, (string) $this->option('folder'));
             $this->info("Backed up $notes notes and $attachments attachments; moved $removed to Drive's trash.");
+            // One line per run in storage/logs/laravel.log, so a run that never happened is noticeable.
+            logger()->info('notes:backup-drive finished', ['notes' => $notes, 'attachments' => $attachments, 'trashed' => $removed, 'problems' => count($this->errors)]);
         } catch (Throwable $e) {
             $this->errors[] = $e->getMessage();
         }
