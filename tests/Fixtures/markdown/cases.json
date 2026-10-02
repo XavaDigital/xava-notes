@@ -33,7 +33,39 @@
       "created": "2026-09-01T09:00:00.000Z",
       "updated": "2026-09-02T10:30:00.000Z"
     },
-    "volatile": []
+    "volatile": [],
+    "input": {
+      "id": "mfx1a2b3-abc123",
+      "fileId": null,
+      "title": "Ring the bank",
+      "type": "task",
+      "body": "About the **loan**.\n\n- one\n- two",
+      "notebook": "Home",
+      "done": true,
+      "completedAt": "2026-09-03T08:00:00.000Z",
+      "due": "2026-09-05",
+      "tags": [
+        "money",
+        "calls"
+      ],
+      "subtasks": [
+        {
+          "text": "Find the number",
+          "done": true
+        },
+        {
+          "text": "Ask about: rates",
+          "done": false
+        }
+      ],
+      "attachments": [],
+      "deleted": false,
+      "deletedAt": "",
+      "order": 1727740800000.5,
+      "created": "2026-09-01T09:00:00.000Z",
+      "updated": "2026-09-02T10:30:00.000Z"
+    },
+    "filename": "Ring the bank.md"
   },
   {
     "name": "quotes, colons, unicode",
@@ -59,7 +91,29 @@
       "created": "2026-09-01T09:00:00.000Z",
       "updated": "2026-09-02T10:30:00.000Z"
     },
-    "volatile": []
+    "volatile": [],
+    "input": {
+      "id": "mfx1a2b3-abc123",
+      "fileId": null,
+      "title": "She said \"hi\": café ☕",
+      "type": "note",
+      "body": "Line with \"quotes\" and a back\\slash.\n",
+      "notebook": "Notes: misc",
+      "done": false,
+      "completedAt": "",
+      "due": "",
+      "tags": [
+        "ünïcode"
+      ],
+      "subtasks": [],
+      "attachments": [],
+      "deleted": false,
+      "deletedAt": "",
+      "order": 0,
+      "created": "2026-09-01T09:00:00.000Z",
+      "updated": "2026-09-02T10:30:00.000Z"
+    },
+    "filename": "She said hi café ☕.md"
   },
   {
     "name": "in trash",
@@ -83,7 +137,27 @@
       "created": "2026-09-01T09:00:00.000Z",
       "updated": "2026-09-02T10:30:00.000Z"
     },
-    "volatile": []
+    "volatile": [],
+    "input": {
+      "id": "mfx1a2b3-abc123",
+      "fileId": null,
+      "title": "Old idea",
+      "type": "note",
+      "body": "gone",
+      "notebook": "",
+      "done": false,
+      "completedAt": "",
+      "due": "",
+      "tags": [],
+      "subtasks": [],
+      "attachments": [],
+      "deleted": true,
+      "deletedAt": "2026-09-04T00:00:00.000Z",
+      "order": 0,
+      "created": "2026-09-01T09:00:00.000Z",
+      "updated": "2026-09-02T10:30:00.000Z"
+    },
+    "filename": "Old idea.md"
   },
   {
     "name": "with attachments",
@@ -120,7 +194,40 @@
       "created": "2026-09-01T09:00:00.000Z",
       "updated": "2026-09-02T10:30:00.000Z"
     },
-    "volatile": []
+    "volatile": [],
+    "input": {
+      "id": "mfx1a2b3-abc123",
+      "fileId": null,
+      "title": "Receipt",
+      "type": "note",
+      "body": "",
+      "notebook": "",
+      "done": false,
+      "completedAt": "",
+      "due": "",
+      "tags": [],
+      "subtasks": [],
+      "attachments": [
+        {
+          "id": "1AbCdEf",
+          "name": "receipt.pdf",
+          "mime": "application/pdf",
+          "size": 12345
+        },
+        {
+          "id": "1XyZ",
+          "name": "photo one.jpg",
+          "mime": "image/jpeg",
+          "size": 99
+        }
+      ],
+      "deleted": false,
+      "deletedAt": "",
+      "order": 0,
+      "created": "2026-09-01T09:00:00.000Z",
+      "updated": "2026-09-02T10:30:00.000Z"
+    },
+    "filename": "Receipt.md"
   },
   {
     "name": "note with a date",
@@ -144,7 +251,27 @@
       "created": "2026-09-01T09:00:00.000Z",
       "updated": "2026-09-02T10:30:00.000Z"
     },
-    "volatile": []
+    "volatile": [],
+    "input": {
+      "id": "mfx1a2b3-abc123",
+      "fileId": null,
+      "title": "Dentist",
+      "type": "note",
+      "body": "",
+      "notebook": "",
+      "done": false,
+      "completedAt": "",
+      "due": "2026-10-10",
+      "tags": [],
+      "subtasks": [],
+      "attachments": [],
+      "deleted": false,
+      "deletedAt": "",
+      "order": 0,
+      "created": "2026-09-01T09:00:00.000Z",
+      "updated": "2026-09-02T10:30:00.000Z"
+    },
+    "filename": "Dentist.md"
   },
   {
     "name": "empty title, body only",
@@ -168,14 +295,122 @@
       "created": "2026-09-01T09:00:00.000Z",
       "updated": "2026-09-02T10:30:00.000Z"
     },
-    "volatile": []
+    "volatile": [],
+    "input": {
+      "id": "mfx1a2b3-abc123",
+      "fileId": null,
+      "title": "",
+      "type": "note",
+      "body": "Just a body line\nand another",
+      "notebook": "",
+      "done": false,
+      "completedAt": "",
+      "due": "",
+      "tags": [],
+      "subtasks": [],
+      "attachments": [],
+      "deleted": false,
+      "deletedAt": "",
+      "order": 0,
+      "created": "2026-09-01T09:00:00.000Z",
+      "updated": "2026-09-02T10:30:00.000Z"
+    },
+    "filename": "Just a body line.md"
+  },
+  {
+    "name": "long title with unsafe filename characters",
+    "fileName": "note.md",
+    "markdown": "---\nid: \"mfx1a2b3-abc123\"\ntype: \"task\"\ncreated: \"2026-09-01T09:00:00.000Z\"\nupdated: \"2026-09-02T10:30:00.000Z\"\ntitle: \"Q3: what/why? <draft> | \\\"final\\\" #1 — a very long title that keeps going past sixty characters\"\ndone: false\norder: 2\n---\n# Q3: what/why? <draft> | \"final\" #1 — a very long title that keeps going past sixty characters\n\n",
+    "expected": {
+      "id": "mfx1a2b3-abc123",
+      "title": "Q3: what/why? <draft> | \"final\" #1 — a very long title that keeps going past sixty characters",
+      "type": "task",
+      "body": "",
+      "notebook": "",
+      "done": false,
+      "completedAt": "",
+      "due": "",
+      "tags": [],
+      "subtasks": [],
+      "attachments": [],
+      "deleted": false,
+      "deletedAt": "",
+      "order": 2,
+      "created": "2026-09-01T09:00:00.000Z",
+      "updated": "2026-09-02T10:30:00.000Z"
+    },
+    "volatile": [],
+    "input": {
+      "id": "mfx1a2b3-abc123",
+      "fileId": null,
+      "title": "Q3: what/why? <draft> | \"final\" #1 — a very long title that keeps going past sixty characters",
+      "type": "task",
+      "body": "",
+      "notebook": "",
+      "done": false,
+      "completedAt": "2026-09-03T08:00:00.000Z",
+      "due": "",
+      "tags": [],
+      "subtasks": [],
+      "attachments": [],
+      "deleted": false,
+      "deletedAt": "",
+      "order": 2,
+      "created": "2026-09-01T09:00:00.000Z",
+      "updated": "2026-09-02T10:30:00.000Z"
+    },
+    "filename": "Q3 what why draft final 1 — a very long title that.md"
+  },
+  {
+    "name": "title-less note whose body starts blank",
+    "fileName": "note.md",
+    "markdown": "---\nid: \"mfx1a2b3-abc123\"\ntype: \"note\"\ncreated: \"2026-09-01T09:00:00.000Z\"\nupdated: \"2026-09-02T10:30:00.000Z\"\n---\n\n\n  first real line: here\nsecond",
+    "expected": {
+      "id": "mfx1a2b3-abc123",
+      "title": "note",
+      "type": "note",
+      "body": "first real line: here\nsecond",
+      "notebook": "",
+      "done": false,
+      "completedAt": "",
+      "due": "",
+      "tags": [],
+      "subtasks": [],
+      "attachments": [],
+      "deleted": false,
+      "deletedAt": "",
+      "order": 0,
+      "created": "2026-09-01T09:00:00.000Z",
+      "updated": "2026-09-02T10:30:00.000Z"
+    },
+    "volatile": [],
+    "input": {
+      "id": "mfx1a2b3-abc123",
+      "fileId": null,
+      "title": "",
+      "type": "note",
+      "body": "\n\n  first real line: here\nsecond",
+      "notebook": "",
+      "done": false,
+      "completedAt": "",
+      "due": "",
+      "tags": [],
+      "subtasks": [],
+      "attachments": [],
+      "deleted": false,
+      "deletedAt": "",
+      "order": 0,
+      "created": "2026-09-01T09:00:00.000Z",
+      "updated": "2026-09-02T10:30:00.000Z"
+    },
+    "filename": "first real line here.md"
   },
   {
     "name": "no frontmatter, heading title",
     "fileName": "Groceries list.md",
     "markdown": "# Groceries\n\nmilk\nbread\n",
     "expected": {
-      "id": "mupmzcei-hrwzel",
+      "id": "muqvikui-oy6qjg",
       "title": "Groceries",
       "type": "note",
       "body": "milk\nbread\n",
@@ -189,8 +424,8 @@
       "deleted": false,
       "deletedAt": "",
       "order": 0,
-      "created": "2026-10-01T14:35:35.178Z",
-      "updated": "2026-10-01T14:35:35.179Z"
+      "created": "2026-10-02T11:22:15.690Z",
+      "updated": "2026-10-02T11:22:15.692Z"
     },
     "volatile": [
       "id",
@@ -203,7 +438,7 @@
     "fileName": "Phone numbers.md",
     "markdown": "Sam 021 555 1234\n",
     "expected": {
-      "id": "mupmzcek-pj0h0m",
+      "id": "muqvikuk-wb8cfg",
       "title": "Phone numbers",
       "type": "note",
       "body": "Sam 021 555 1234\n",
@@ -217,8 +452,8 @@
       "deleted": false,
       "deletedAt": "",
       "order": 0,
-      "created": "2026-10-01T14:35:35.180Z",
-      "updated": "2026-10-01T14:35:35.180Z"
+      "created": "2026-10-02T11:22:15.692Z",
+      "updated": "2026-10-02T11:22:15.692Z"
     },
     "volatile": [
       "id",
@@ -275,8 +510,8 @@
       "deleted": false,
       "deletedAt": "",
       "order": 0,
-      "created": "2026-10-01T14:35:35.180Z",
-      "updated": "2026-10-01T14:35:35.180Z"
+      "created": "2026-10-02T11:22:15.693Z",
+      "updated": "2026-10-02T11:22:15.693Z"
     },
     "volatile": [
       "created",
@@ -318,8 +553,8 @@
       "deleted": false,
       "deletedAt": "",
       "order": 0,
-      "created": "2026-10-01T14:35:35.180Z",
-      "updated": "2026-10-01T14:35:35.180Z"
+      "created": "2026-10-02T11:22:15.693Z",
+      "updated": "2026-10-02T11:22:15.693Z"
     },
     "volatile": [
       "created",
@@ -345,8 +580,8 @@
       "deleted": false,
       "deletedAt": "",
       "order": 0,
-      "created": "2026-10-01T14:35:35.180Z",
-      "updated": "2026-10-01T14:35:35.180Z"
+      "created": "2026-10-02T11:22:15.693Z",
+      "updated": "2026-10-02T11:22:15.693Z"
     },
     "volatile": [
       "created",
@@ -372,8 +607,8 @@
       "deleted": false,
       "deletedAt": "",
       "order": 0,
-      "created": "2026-10-01T14:35:35.180Z",
-      "updated": "2026-10-01T14:35:35.180Z"
+      "created": "2026-10-02T11:22:15.693Z",
+      "updated": "2026-10-02T11:22:15.693Z"
     },
     "volatile": [
       "created",

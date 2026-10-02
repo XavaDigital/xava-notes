@@ -6,7 +6,7 @@
 //   node tests/Fixtures/markdown/generate.mjs
 
 import { writeFileSync } from 'node:fs';
-import { noteToMarkdown, noteFromMarkdown } from '../../../public/js/note.js';
+import { noteToMarkdown, noteFromMarkdown, noteFilename } from '../../../public/js/note.js';
 
 const base = {
   id: 'mfx1a2b3-abc123', fileId: null, title: '', type: 'note', body: '', notebook: '',
@@ -36,6 +36,11 @@ const written = {
   },
   'note with a date': { ...base, title: 'Dentist', due: '2026-10-10' },
   'empty title, body only': { ...base, body: 'Just a body line\nand another' },
+  'long title with unsafe filename characters': {
+    ...base, type: 'task', title: 'Q3: what/why? <draft> | "final" #1 — a very long title that keeps going past sixty characters',
+    done: false, completedAt: '2026-09-03T08:00:00.000Z', order: 2,
+  },
+  'title-less note whose body starts blank': { ...base, body: '\n\n  first real line: here\nsecond' },
 };
 
 // Files as they might be found in Drive: hand edits, old formats, odd values.
@@ -55,7 +60,8 @@ const raw = {
 const cases = [];
 for (const [name, note] of Object.entries(written)) {
   const markdown = noteToMarkdown(note);
-  cases.push({ name, fileName: 'note.md', markdown, expected: noteFromMarkdown(markdown, 'note.md'), volatile: [] });
+  // `input` and `filename` let the test check the PHP writer too (the nightly backup).
+  cases.push({ name, fileName: 'note.md', markdown, expected: noteFromMarkdown(markdown, 'note.md'), volatile: [], input: note, filename: noteFilename(note) });
 }
 for (const [name, [fileName, markdown]] of Object.entries(raw)) {
   const expected = noteFromMarkdown(markdown, fileName);

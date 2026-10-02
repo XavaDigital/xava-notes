@@ -17,7 +17,8 @@ A notes and tasks PWA for one person, with a Laravel API that keeps the notes in
 - `app/Models/Note.php` — translates between the app's note shape (`public/js/note.js`) and the columns.
 - `app/Notes/Revisions.php` — the global change counter behind `rev`.
 - `app/Notes/MarkdownNote.php` — reads a note's Markdown file exactly as `public/js/note.js` does. `tests/Fixtures/markdown/cases.json` is generated from the JavaScript itself (`node tests/Fixtures/markdown/generate.mjs`); regenerate it whenever `note.js` or `frontmatter.js` changes.
-- `app/Notes/Drive.php`, `app/Console/Commands/ImportDriveCommand.php` — `notes:import-drive` (Phase 3).
+- `app/Notes/Drive.php`, `app/Console/Commands/ImportDriveCommand.php` — `notes:import-drive` (Phase 3). `BackupDriveCommand.php` — `notes:backup-drive`, the nightly backup (Phase 4), scheduled in `routes/console.php`. `tests/Support/FakeDrive.php` is an in-memory Drive for their tests.
+- Files the web app and SSH commands both touch must be group-shared (`config/filesystems.php`): they run as different users on Cloudways. The server's web PHP also has `fpassthru()` disabled, so send files whole, never with Laravel's streamed responses.
 - `app/Http/Controllers/AttachmentsController.php`, `NotifyController.php`, `SignInController.php`, `SessionController.php`.
 - `backend/` — the old Cloudflare Worker. Kept until Phase 5, then deleted.
 

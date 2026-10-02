@@ -64,6 +64,125 @@ class MarkdownNote
     }
 
     /**
+     * noteToMarkdown(): the file the app used to write to Drive, byte for byte, so a backup
+     * reads back with parse() (and with notes:import-drive) exactly as the note was.
+     *
+     * @param  array<string, mixed>  $note  the app's note shape (Note::toClient())
+     */
+    public static function toMarkdown(array $note): string
+    {
+        $meta = [
+            'id' => $note['id'],
+            'type' => $note['type'],
+            'created' => $note['created'],
+            'updated' => $note['updated'],
+        ];
+        if (self::truthy($note['title'] ?? '')) {
+            $meta['title'] = $note['title'];
+        }
+        if (self::truthy($note['notebook'] ?? '')) {
+            $meta['notebook'] = $note['notebook'];
+        }
+        if (self::truthy($note['due'] ?? '')) {
+            $meta['due'] = $note['due'];
+        }
+        if ($note['type'] === 'task') {
+            $meta['done'] = (bool) ($note['done'] ?? false);
+            if (! empty($note['done']) && self::truthy($note['completedAt'] ?? '')) {
+                $meta['completedAt'] = $note['completedAt'];
+            }
+            if (! empty($note['subtasks'])) {
+                $meta['subtasks'] = $note['subtasks'];
+            }
+        }
+        if (! empty($note['attachments'])) {
+            $meta['attachments'] = $note['attachments'];
+        }
+        if (! empty($note['tags'])) {
+            $meta['tags'] = $note['tags'];
+        }
+        if (! empty($note['deleted'])) {
+            $meta['deleted'] = true;
+            if (self::truthy($note['deletedAt'] ?? '')) {
+                $meta['deletedAt'] = $note['deletedAt'];
+            }
+        }
+        if (self::truthy($note['order'] ?? 0)) {
+            $meta['order'] = $note['order'];
+        }
+
+        $body = self::truthy($note['title'] ?? '') ? "# {$note['title']}\n\n" : '';
+
+        return self::buildFrontmatter($meta, $body.($note['body'] ?? ''));
+    }
+
+    /** noteFilename(): a safe, human-readable file name for a note. */
+    public static function filename(array $note): string
+    {
+        $firstLine = '';
+        foreach (explode("\n", $note['body'] ?? '') as $line) {
+            if (self::trim($line) !== '') {
+                $firstLine = $line;
+                break;
+            }
+        }
+        $base = self::firstTruthy([$note['title'] ?? '', $firstLine, 'note']);
+        $base = mb_substr((string) $base, 0, 60);
+        $base = preg_replace('/[\\\\\/:*?"<>|#]+/u', ' ', $base);
+        $base = self::trim(preg_replace('/\s+/u', ' ', $base));
+
+        return ($base !== '' ? $base : 'note').'.md';
+    }
+
+    /** buildFrontmatter() in js/frontmatter.js. */
+    private static function buildFrontmatter(array $meta, string $body): string
+    {
+        $lines = ['---'];
+        foreach ($meta as $key => $value) {
+            if ($value === null || $value === '') {
+                continue;
+            }
+            if (is_array($value)) {
+                if (! $value) {
+                    continue;
+                }
+                if (is_array($value[0] ?? null)) {
+                    // Block list of objects (subtasks, attachments).
+                    $lines[] = "$key:";
+                    foreach ($value as $obj) {
+                        $i = 0;
+                        foreach ($obj as $k => $v) {
+                            $lines[] = ($i++ === 0 ? '  - ' : '    ')."$k: ".self::serialize($v);
+                        }
+                    }
+                } else {
+                    // Inline array of scalars (tags).
+                    $lines[] = "$key: ".self::serialize($value);
+                }
+
+                continue;
+            }
+            $lines[] = "$key: ".self::serialize($value);
+        }
+        $lines[] = '---';
+        $lines[] = '';
+
+        return implode("\n", $lines).$body;
+    }
+
+    private static function serialize(mixed $v): string
+    {
+        if (is_bool($v) || is_int($v) || is_float($v)) {
+            return self::str($v);
+        }
+        if (is_array($v)) {
+            return '['.implode(', ', array_map(self::str(...), $v)).']';
+        }
+
+        return '"'.str_replace(['\\', '"'], ['\\\\', '\\"'], (string) $v).'"';
+    }
+
+    /**
      * parseFrontmatter(): the small YAML subset the app writes, leniently.
      *
      * @return array{meta: array<string, mixed>, body: string}
@@ -218,7 +337,8 @@ class MarkdownNote
         return match (true) {
             $v === null => '',
             is_bool($v) => $v ? 'true' : 'false',
-            is_float($v) && floor($v) === $v && abs($v) < 1e21 => (string) (int) $v,
+            is_float($v) && floor($v) === $v && abs($v) < 1e21 => sprintf('%.0f', $v),
+            is_float($v) => json_encode($v), // shortest round-trip form, as JavaScript prints it
             is_array($v) => implode(',', array_map(self::str(...), $v)),
             default => (string) $v,
         };

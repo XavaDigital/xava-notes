@@ -1,3 +1,7 @@
+# Keep LF in the working copy too, even with core.autocrlf on Windows: the server,
+# Pint and the shell scripts all expect it.
+* text=auto eol=lf
+
 # Shell scripts must keep LF endings. Git's Windows autocrlf would otherwise
 # check deploy.sh out with CRLF, which breaks the `#!` line at run time.
 *.sh text eol=lf

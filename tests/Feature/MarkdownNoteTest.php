@@ -38,6 +38,18 @@ class MarkdownNoteTest extends TestCase
         );
     }
 
+    public static function writtenCases(): array
+    {
+        return array_filter(self::cases(), fn ($c) => isset($c[0]['input']));
+    }
+
+    #[DataProvider('writtenCases')]
+    public function test_it_writes_a_note_file_byte_for_byte_as_the_app_did(array $case): void
+    {
+        $this->assertSame($case['markdown'], MarkdownNote::toMarkdown($case['input']));
+        $this->assertSame($case['filename'], MarkdownNote::filename($case['input']));
+    }
+
     public function test_windows_line_endings_are_read_properly_unlike_the_javascript(): void
     {
         $n = MarkdownNote::parse("---\r\nid: \"crlf-1\"\r\ntype: \"task\"\r\ntitle: \"Windows file\"\r\ndone: true\r\ncreated: \"2026-01-01T00:00:00.000Z\"\r\n---\r\nbody text\r\n", 'x.md');

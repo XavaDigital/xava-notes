@@ -4,7 +4,7 @@ Move Xava Notes off Google Drive and the Cloudflare Worker, onto a small Laravel
 
 Written 2026-10-01.
 
-**Progress.** Phases 0 to 3 are done. The app is live at https://notes.xava.co.nz with the notes imported from Drive on 2026-10-02 (129 notes, 23 duplicate copies dropped, 5 attachments). GitHub Pages is switched off (2026-10-03) and both branches hold the Laravel app; the old app's address now returns 404. The Drive files remain as the fallback until Phase 5. Still to do in Phase 3: install the app from the new address on the phone and Windows and remove the old one. Phases 4 and 5 are not started.
+**Progress.** Phases 0 to 3 are done. The app is live at https://notes.xava.co.nz with the notes imported from Drive on 2026-10-02 (129 notes, 23 duplicate copies dropped, 5 attachments). GitHub Pages is switched off (2026-10-03) and both branches hold the Laravel app; the old app's address now returns 404. The Drive files remain as the fallback until Phase 5. Still to do in Phase 3: install the app from the new address on the phone and Windows and remove the old one. Phase 4 (the nightly backup) is built and tested; it needs deploying, a first run, and the Cloudways cron line. Phase 5 is not started.
 
 ## Why
 
@@ -119,7 +119,7 @@ All behind the session, all JSON. Writes carry Laravel's `XSRF-TOKEN` cookie bac
 
 The Drive files are left where they are, untouched, as the fallback until Phase 5.
 
-**Phase 4. Nightly backup to Drive.** A scheduled job writes every note as a Markdown file, in today's frontmatter format, into a separate Drive folder (`XavaNotes backup`), plus any attachments added since the last run. One-way only: nothing is ever read back from it automatically. If it fails, the app is unaffected and the failure is emailed. Because the format is unchanged, the Phase 3 import command can restore from it.
+**Phase 4. Nightly backup to Drive. Built.** As built: `notes:backup-drive` at 2:30am NZ time; each run writes only notes changed since the last (tracked in `drive_backups`), copies new attachments once into `XavaNotes backup/attachments` and points the backed-up notes at those copies, and moves the backup of a note emptied from Trash to Drive's trash. `notes:import-drive --folder="XavaNotes backup"` restores from it; a test proves the round trip. A scheduled job writes every note as a Markdown file, in today's frontmatter format, into a separate Drive folder (`XavaNotes backup`), plus any attachments added since the last run. One-way only: nothing is ever read back from it automatically. If it fails, the app is unaffected and the failure is emailed. Because the format is unchanged, the Phase 3 import command can restore from it.
 
 **Phase 5. Retire the old pieces, after about two weeks of use without problems.** Delete the Cloudflare Worker and its D1 database, remove `deploy.sh` (or change it to push the branch Cloudways pulls from; GitHub Pages and its workflow are already gone, see Phase 3), delete `backend/`, and update the README. Decide whether to keep or remove the original `XavaNotes` folder in Drive.
 

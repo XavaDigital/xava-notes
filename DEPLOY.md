@@ -48,14 +48,15 @@ If a command fails with "Permission denied" on `storage/`, use Application Setti
 | `MAILGUN_ENDPOINT` | `https://api.eu.mailgun.net` if the Mailgun account is in the EU region; otherwise leave the default. |
 | `NOTIFY_EMAIL` | Where "email me a copy" sends. |
 | `NOTES_ATTACHMENT_MAX_KB` | Largest attachment in KB. Default 51200 (50 MB). See section 4. |
+| `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REFRESH_TOKEN` | The OAuth client the old app used and the refresh token the Worker held (D1 `config` table, key `refresh_token`). Used by `notes:import-drive` and the nightly backup. |
 
 ## 4. Upload size
 
 PHP refuses uploads above `upload_max_filesize` and `post_max_size` before Laravel sees them. If attaching a large file fails, raise both to at least the `NOTES_ATTACHMENT_MAX_KB` size under Application Settings → PHP FPM Settings (for example `php_admin_value[upload_max_filesize] = 50M` and `php_admin_value[post_max_size] = 55M`). This changes only this application, not the other sites on the server.
 
-## 5. Cron (from Phase 4)
+## 5. Cron (the nightly backup to Drive)
 
-Nothing is scheduled until the nightly backup to Drive exists. When it does, Application Management → **Cron Job Management** → Advanced tab, one line:
+The scheduler runs the backup to Google Drive at 2:30am NZ time (`notes:backup-drive`, PLAN.md Phase 4). It needs `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` and `GOOGLE_REFRESH_TOKEN` in `.env`, and emails `NOTIFY_EMAIL` if a run has problems. Application Management → **Cron Job Management** → Advanced tab, one line:
 
 ```
 * * * * * cd /home/master/applications/<app folder>/public_html && /usr/bin/php8.3 artisan schedule:run >> /dev/null 2>&1
