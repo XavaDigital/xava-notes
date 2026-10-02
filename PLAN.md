@@ -4,7 +4,7 @@ Move Xava Notes off Google Drive and the Cloudflare Worker, onto a small Laravel
 
 Written 2026-10-01.
 
-**Progress.** Phases 1 and 2 are built and live at https://notes.xava.co.nz (deployed 2026-10-02, empty database; the phone test passed). Phase 0 is done: subdomain set up with HTTPS, server backups on, attachments well within the server's disk. Phase 3: the import command is built and dry-run against the real Drive (152 files, 129 notes after 23 duplicate copies are dropped, 5 attachments); the real import has not run. Phases 4 and 5 are not started. Keep using the GitHub Pages app for real notes until Phase 3.
+**Progress.** Phases 0 to 3 are done. The app is live at https://notes.xava.co.nz with the notes imported from Drive on 2026-10-02 (129 notes, 23 duplicate copies dropped, 5 attachments). The GitHub Pages workflow is removed and both branches hold the Laravel app; the last Pages deployment still serves the frozen old app until Pages is switched off in the repo settings (Phase 5). Still to do in Phase 3: install the app from the new address on the phone and Windows and remove the old one. Phases 4 and 5 are not started.
 
 ## Why
 
@@ -110,7 +110,7 @@ All behind the session, all JSON. Writes carry Laravel's `XSRF-TOKEN` cookie bac
 
 **Phase 2. The client talks to the server. Done, phone test passed.** The changes to `js/store.js`, `js/auth.js`, `js/config.js` and `sw.js` above, `js/drive.js` replaced by `js/api.js`. Tried on the new subdomain with test notes, including offline on the phone: capture with no signal, reconnect, confirm it lands; edit the same note on two devices and confirm the conflict prompt.
 
-**Phase 3. Move the notes.**
+**Phase 3. Move the notes. Done 2026-10-02.**
 1. Freeze the old app: stop editing on the GitHub Pages version.
 2. Import with an artisan command, `notes:import-drive`. It reads the `XavaNotes` folder and its attachments through the same Google OAuth client (the `drive.file` scope lets that client see the files it created), using the refresh token the Worker already holds (or a fresh consent), parses each file with the same frontmatter rules as `js/note.js`, and inserts it with its original id. Attachments are downloaded to disk and their ids rewritten in the note.
 3. Check: the count of notes, tasks, notebooks and attachments matches Drive; open a sample of notes with attachments.

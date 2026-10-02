@@ -4,8 +4,8 @@ A notes and tasks PWA for one person, with a Laravel API that keeps the notes in
 
 ## Branches
 
-- `claude/note-todo-app-fnaar3` is the Drive version, published to GitHub Pages on every push (`.github/workflows/pages.yml`, `deploy.sh`). It is the live app until the notes are moved (PLAN.md, Phase 3). Do not merge `cloudways` into it before then.
-- `cloudways` is the Laravel app. Cloudways deploys from it ([DEPLOY.md](DEPLOY.md)).
+- `cloudways` is the branch Cloudways deploys from ([DEPLOY.md](DEPLOY.md)). `claude/note-todo-app-fnaar3`, the GitHub default branch, was the GitHub Pages app until the notes moved (PLAN.md, Phase 3); it now holds the same Laravel app, and nothing publishes it to Pages any more.
+- `deploy.sh` belongs to the Pages days and no longer applies; it is removed or rewritten in Phase 5.
 
 ## Layout
 
